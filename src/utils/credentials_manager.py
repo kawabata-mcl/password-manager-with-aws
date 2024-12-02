@@ -54,10 +54,13 @@ class CredentialsManager:
         AWS認証情報を暗号化して保存
 
         Args:
-            credentials (dict): 認証情報を含む辞書
+            credentials (dict): AWS認証情報を含む辞書
                               {'access_key': str, 'secret_key': str}
         """
+        # 認証情報の暗号化
         encrypted_data = self.cipher_suite.encrypt(json.dumps(credentials).encode())
+        
+        # 暗号化されたデータの保存
         with open(self.credentials_path, 'wb') as f:
             f.write(encrypted_data)
 

@@ -60,9 +60,21 @@ class AWSManager:
         if self.ssm is None:
             raise self.NoCredentialsError("AWS認証情報が設定されていません。設定画面から認証情報を設定してください。")
 
-    def _get_parameter_path(self, username: str) -> str:
-        """パラメータパスの生成"""
-        return f"/password-manager/{username}"
+    def _get_parameter_path(self, username: str, app_name: str = None) -> str:
+        """
+        パラメータパスの生成
+
+        Args:
+            username (str): ユーザー名
+            app_name (str, optional): アプリ名。指定がない場合はユーザーのルートパスを返す。
+
+        Returns:
+            str: パラメータパス
+        """
+        base_path = f"/password-manager/{username}"
+        if app_name:
+            return f"{base_path}/{app_name}"
+        return base_path
 
     def _is_cache_valid(self) -> bool:
         """キャッシュが有効かどうかを確認"""
@@ -88,15 +100,39 @@ class AWSManager:
                 if username in self.cache:
                     return self._migrate_password_data(self.cache[username])
 
-            parameter_path = self._get_parameter_path(username)
+            # ユーザーのルートパスを取得
+            root_path = self._get_parameter_path(username)
+            print(f"パラメータ取得開始: {root_path}")  # デバッグ情報
+            passwords = []
+
             try:
-                response = self.ssm.get_parameter(
-                    Name=parameter_path,
+                # パラメータの一覧を取得
+                response = self.ssm.get_parameters_by_path(
+                    Path=root_path,
+                    Recursive=True,
                     WithDecryption=True
                 )
-                passwords = json.loads(response['Parameter']['Value'])
                 
-                # データ形式の移行
+                print(f"取得されたパラメータ数: {len(response.get('Parameters', []))}")  # デバッグ情報
+                
+                # 各パラメータからパスワード情報を取得
+                for param in response.get('Parameters', []):
+                    param_name = param['Name']
+                    print(f"処理中のパラメータ: {param_name}")  # デバッグ情報
+                    
+                    app_name = param_name.split('/')[-1]  # パスの最後の部分をアプリ名として使用
+                    try:
+                        password_data = json.loads(param['Value'])
+                        password_data['app_name'] = app_name
+                        passwords.append(password_data)
+                        print(f"パスワード情報を追加: {app_name}")  # デバッグ情報
+                    except json.JSONDecodeError as e:
+                        print(f"JSONデコードエラー ({param_name}): {e}")  # デバッグ情報
+                        continue
+                
+                print(f"処理完了したパスワード数: {len(passwords)}")  # デバッグ情報
+                
+                # データ形式の移���
                 passwords = self._migrate_password_data(passwords)
                 
                 # キャッシュ更新
@@ -105,6 +141,7 @@ class AWSManager:
                 
                 return passwords
             except self.ssm.exceptions.ParameterNotFound:
+                print(f"パラメータが見つかりません: {root_path}")  # デバッグ情報
                 return []
             
         except self.NoCredentialsError as e:
@@ -112,6 +149,8 @@ class AWSManager:
             return []
         except Exception as e:
             print(f"パスワード取得エラー: {e}")
+            import traceback
+            print(f"詳細なエラー情報: {traceback.format_exc()}")  # デバッグ情報
             return []
 
     def _migrate_password_data(self, passwords: list) -> list:
@@ -128,7 +167,7 @@ class AWSManager:
         for password in passwords:
             migrated_password = password.copy()
             
-            # 古い形式から新しい形式への変換
+            # 古い形式から新しい形���への変換
             if 'website' in password and 'app_name' not in password:
                 migrated_password['app_name'] = password['website']
                 migrated_password['url'] = password.get('url', '')
@@ -171,9 +210,6 @@ class AWSManager:
         try:
             self._check_credentials()
             
-            # 既存のパスワード一覧を取得
-            passwords = self.get_passwords(username)
-            
             # データの検証
             if 'app_name' not in password_data:
                 raise ValueError("必須フィールド 'app_name' が見つかりません")
@@ -184,26 +220,22 @@ class AWSManager:
             password_data.setdefault('password', '')
             password_data.setdefault('memo', '')
             
-            # 既存のパスワードを更新または新規追加
-            updated = False
-            for item in passwords:
-                if item['app_name'] == password_data['app_name']:
-                    item.update(password_data)
-                    updated = True
-                    break
-            
-            if not updated:
-                passwords.append(password_data)
+            # app_nameをパラメータパスに使用するため、コピーから削除
+            app_name = password_data['app_name']
+            param_data = password_data.copy()
+            del param_data['app_name']
             
             # パラメータストアに保存
+            parameter_path = self._get_parameter_path(username, app_name)
             self.ssm.put_parameter(
-                Name=self._get_parameter_path(username),
-                Value=json.dumps(passwords),
+                Name=parameter_path,
+                Value=json.dumps(param_data),
                 Type='SecureString',
                 Overwrite=True
             )
             
             # キャッシュを更新
+            passwords = self.get_passwords(username)  # 最新のパスワード一覧を取得
             self.cache[username] = passwords
             self.cache_timestamp = datetime.now()
             
@@ -227,26 +259,20 @@ class AWSManager:
         try:
             self._check_credentials()
             
-            # 既存のパスワード一覧を取得
-            passwords = self.get_passwords(username)
-            
-            # 指定されたアプリ名のパスワードを削除
-            passwords = [p for p in passwords if p['app_name'] != app_name]
-            
-            # パラメータストアに保存
-            self.ssm.put_parameter(
-                Name=self._get_parameter_path(username),
-                Value=json.dumps(passwords),
-                Type='SecureString',
-                Overwrite=True
-            )
+            # パラメータの削除
+            parameter_path = self._get_parameter_path(username, app_name)
+            self.ssm.delete_parameter(Name=parameter_path)
             
             # キャッシュを更新
+            passwords = self.get_passwords(username)  # 最新のパスワード一覧を取得
             self.cache[username] = passwords
             self.cache_timestamp = datetime.now()
             
             return True
             
+        except self.ssm.exceptions.ParameterNotFound:
+            # パラメータが存在しない場合は成功として扱う
+            return True
         except Exception as e:
             print(f"パスワード削除エラー: {e}")
             return False
@@ -259,6 +285,10 @@ class AWSManager:
             access_key (str): AWSアクセスキー
             secret_key (str): AWSシークレットキー
         """
-        self.credentials_manager.save_credentials(access_key, secret_key)
+        credentials = {
+            'access_key': access_key,
+            'secret_key': secret_key
+        }
+        self.credentials_manager.save_credentials(credentials)
         self._setup_session()
   

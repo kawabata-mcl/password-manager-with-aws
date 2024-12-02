@@ -16,6 +16,7 @@ import pyperclip
 from ..utils.aws_manager import AWSManager
 import configparser
 from pathlib import Path
+from datetime import datetime
 
 class PasswordDialog(QDialog):
     def __init__(self, parent=None, password_data=None):
@@ -103,22 +104,70 @@ class PasswordDialog(QDialog):
         }
 
 class MainWindow(QMainWindow):
-    def __init__(self, username):
+    def __init__(self, username: str):
+        """
+        メインウィンドウの初期化
+
+        Args:
+            username (str): ログインユーザー名
+        """
         super().__init__()
         self.username = username
-        self.setWindowTitle(f"パスワードマネージャー - {username}")
-        self.setMinimumSize(800, 600)
         
-        # AWS マネージャーの初期化
+        # ウィンドウの設定
+        self.setWindowTitle(f"パスワードマネージャー - {username}")
+        self.setGeometry(100, 100, 800, 600)
+        
+        # 設定の読み込み
+        self.load_config()
+        
+        # AWSマネージャーの初期化
+        self.aws_manager = AWSManager()
+        
+        # UIの初期化
+        self.init_ui()
+        
+        # パスワード一覧の初期表示
+        self.refresh_table()
+        
+        # アクティビティタイマーの設定
+        self.activity_timer = QTimer(self)
+        self.activity_timer.timeout.connect(self.check_activity)
+        self.activity_timer.start(60000)  # 1分ごとにチェック
+        self.last_activity = datetime.now()
+
+    def check_activity(self):
+        """ユーザーのアクティビティをチェックし、必要に応じて自動ログアウト"""
+        if (datetime.now() - self.last_activity).total_seconds() > self.session_timeout * 60:
+            QMessageBox.warning(self, "セッションタイムアウト", 
+                              "一定時間操作がなかったため、セッションを終了します。")
+            self.close()
+
+    def eventFilter(self, obj, event):
+        """イベントフィルター（ユーザーのアクティビティを監視）"""
+        if event.type() in [QEvent.Type.MouseButtonPress, QEvent.Type.KeyPress]:
+            self.last_activity = datetime.now()
+        return super().eventFilter(obj, event)
+
+    def load_config(self):
+        """設定の読み込み"""
         config = configparser.ConfigParser()
         config.read(Path.home() / '.password_manager' / 'config.ini')
-        self.aws_manager = AWSManager(config.get('AWS', 'region', fallback='ap-northeast-1'))
         
+        # セッションタイムアウトの設定
+        self.session_timeout = config.getint('App', 'session_timeout', fallback=30)
+
+    def init_ui(self):
+        """UIの初期化"""
         # メインウィジェットとレイアウトの設定
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         layout = QVBoxLayout()
         main_widget.setLayout(layout)
+        
+        # イベントフィルターの設定
+        self.installEventFilter(self)
+        main_widget.installEventFilter(self)
         
         # ツールバーの設定
         toolbar_layout = QHBoxLayout()
@@ -148,7 +197,7 @@ class MainWindow(QMainWindow):
         toolbar_layout.addStretch()
         layout.addLayout(toolbar_layout)
         
-        # テーブルの設定
+        # テーブルの設���
         self.table = QTableWidget()
         self.table.setColumnCount(7)  # チェックボックス列を追加
         self.table.setHorizontalHeaderLabels(["選択", "アプリ名", "サイトURL", "ユーザー名", "パスワード", "メモ", "操作"])
@@ -350,6 +399,13 @@ class MainWindow(QMainWindow):
             if not data['app_name'] or not data['username'] or not data['password']:
                 QMessageBox.warning(self, "エラー", "アプリ名、ユーザー名、パスワードは必須です。")
                 return
+            
+            # 既存のパスワード一覧を取得して重複チェック
+            existing_passwords = self.aws_manager.get_passwords(self.username)
+            for existing in existing_passwords:
+                if existing['app_name'] == data['app_name']:
+                    QMessageBox.warning(self, "エラー", f"アプリ名 '{data['app_name']}' は既に存在します。")
+                    return
             
             if self.aws_manager.save_password(self.username, data):
                 self.refresh_table()
