@@ -77,27 +77,58 @@ class LoginWindow(QMainWindow):
         main_widget.setLayout(layout)
         
         # ユーザー名入力
+        username_label = QLabel('ユーザー名:')
         self.username_input = QLineEdit()
-        self.username_input.setPlaceholderText("ユーザー名")
-        layout.addWidget(QLabel("ユーザー名:"))
+        self.username_input.returnPressed.connect(self.on_return_pressed)
+        layout.addWidget(username_label)
         layout.addWidget(self.username_input)
         
         # パスワード入力
+        password_label = QLabel('パスワード:')
         self.password_input = QLineEdit()
-        self.password_input.setPlaceholderText("パスワード")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        layout.addWidget(QLabel("パスワード:"))
+        self.password_input.returnPressed.connect(self.on_return_pressed)
+        layout.addWidget(password_label)
         layout.addWidget(self.password_input)
         
-        # ログインボタン
-        login_button = QPushButton("ログイン")
-        login_button.clicked.connect(self.login)
-        layout.addWidget(login_button)
+        # スペースを追加
+        layout.addSpacing(10)
         
-        # 新規登録ボタン
-        register_button = QPushButton("新規登録")
+        # ボタンレイアウト
+        button_layout = QHBoxLayout()
+        
+        # 新規登録ボタン（左）
+        register_button = QPushButton('新規登録')
         register_button.clicked.connect(self.register)
-        layout.addWidget(register_button)
+        register_button.setFixedWidth(100)
+        button_layout.addWidget(register_button)
+        
+        # スペーサーを追加（ログインボタンを右寄せ）
+        button_layout.addStretch()
+        
+        # ログインボタン（右）
+        login_button = QPushButton('ログイン')
+        login_button.clicked.connect(self.login)
+        login_button.setFixedWidth(120)
+        login_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 8px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+        """)
+        button_layout.addWidget(login_button)
+        
+        layout.addLayout(button_layout)
         
         # ログイン試行回数の初期化
         self.login_attempts = 0
@@ -225,3 +256,9 @@ class LoginWindow(QMainWindow):
         QMessageBox.information(self, "成功", "ユーザー登録が完了しました。")
         self.username_input.clear()
         self.password_input.clear()
+
+    def on_return_pressed(self):
+        """エンターキーが押されたときの処理"""
+        # ユーザー名とパスワードが両方入力されている場合のみログイン実行
+        if self.username_input.text() and self.password_input.text():
+            self.login()

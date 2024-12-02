@@ -10,7 +10,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                            QPushButton, QTableWidget, QTableWidgetItem,
                            QMessageBox, QMenu, QDialog, QLabel, QLineEdit,
-                           QTextEdit)
+                           QTextEdit, QHeaderView)
 from PyQt6.QtCore import Qt, QTimer, QEvent
 import pyperclip
 from ..utils.aws_manager import AWSManager
@@ -172,46 +172,163 @@ class MainWindow(QMainWindow):
         # ツールバーの設定
         toolbar_layout = QHBoxLayout()
         
-        # 作成ボタン
-        create_button = QPushButton("作成")
-        create_button.clicked.connect(self.add_password)
-        toolbar_layout.addWidget(create_button)
+        # 追加ボタン
+        add_button = QPushButton("追加")
+        add_button.clicked.connect(self.add_password)
+        toolbar_layout.addWidget(add_button)
         
-        # 編集ボタン（初期状態は無効）
+        # 編集ボタン
         self.edit_button = QPushButton("編集")
-        self.edit_button.setEnabled(False)
         self.edit_button.clicked.connect(self.edit_selected_passwords)
+        self.edit_button.setEnabled(False)  # 初期状態は無効
         toolbar_layout.addWidget(self.edit_button)
         
-        # 削除ボタン（初期状態は無効）
+        # 削除ボタン
         self.delete_button = QPushButton("削除")
-        self.delete_button.setEnabled(False)
         self.delete_button.clicked.connect(self.delete_selected_passwords)
+        self.delete_button.setEnabled(False)  # 初期状態は無効
         toolbar_layout.addWidget(self.delete_button)
+
+        # コピーボタン
+        self.copy_url_button = QPushButton("URLをコピー")
+        self.copy_url_button.clicked.connect(lambda: self.copy_selected_field('url'))
+        self.copy_url_button.setEnabled(False)  # 初期状態は無効
+        toolbar_layout.addWidget(self.copy_url_button)
+        
+        self.copy_username_button = QPushButton("ユーザー名をコピー")
+        self.copy_username_button.clicked.connect(lambda: self.copy_selected_field('username'))
+        self.copy_username_button.setEnabled(False)  # 初期状態は無効
+        toolbar_layout.addWidget(self.copy_username_button)
+        
+        self.copy_password_button = QPushButton("パスワードをコピー")
+        self.copy_password_button.clicked.connect(lambda: self.copy_selected_field('password'))
+        self.copy_password_button.setEnabled(False)  # 初期状態は無効
+        toolbar_layout.addWidget(self.copy_password_button)
+        
+        # スペーサーを追加（右寄せ用）
+        toolbar_layout.addStretch()
         
         # 更新ボタン
         refresh_button = QPushButton("更新")
         refresh_button.clicked.connect(self.refresh_table)
         toolbar_layout.addWidget(refresh_button)
         
-        toolbar_layout.addStretch()
         layout.addLayout(toolbar_layout)
         
-        # テーブルの設���
+        # テーブルの設定
         self.table = QTableWidget()
-        self.table.setColumnCount(7)  # チェックボックス列を追加
-        self.table.setHorizontalHeaderLabels(["選択", "アプリ名", "サイトURL", "ユーザー名", "パスワード", "メモ", "操作"])
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setColumnWidth(0, 50)   # チェックボックス
-        self.table.setColumnWidth(1, 150)  # アプリ名
-        self.table.setColumnWidth(2, 200)  # URL
-        self.table.setColumnWidth(3, 150)  # ユーザー名
-        self.table.setColumnWidth(4, 100)  # パスワード
-        self.table.setColumnWidth(5, 200)  # メモ
-        layout.addWidget(self.table)
+        self.table.setColumnCount(6)  # チェックボックス、アプリ名、URL、ユーザー名、パスワード、メモ
+        self.table.setHorizontalHeaderLabels([
+            "", "アプリ名", "URL", "ユーザー名", "パスワード", "メモ"
+        ])
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # アプリ名列を伸縮可能に
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # URL列を伸縮可能に
+        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)  # メモ列を伸縮可能に
         
-        # 選択状態の変更を監視
-        self.table.itemChanged.connect(self.on_selection_changed)
+        # アイテム変更時のイベントを接続
+        self.table.itemChanged.connect(self.on_item_changed)
+        # ダブルクリック時のイベントを接続
+        self.table.cellDoubleClicked.connect(self.on_cell_double_clicked)
+        
+        layout.addWidget(self.table)
+
+    def on_item_changed(self, item):
+        """テーブルアイテムの変更時のイベントハンドラ"""
+        if item.column() == 0:  # チェックボックス列の変更時のみ
+            self.update_button_states()
+
+    def on_cell_double_clicked(self, row, column):
+        """セルがダブルクリックされたときの処理"""
+        if column == 4:  # パスワード列
+            item = self.table.item(row, column)
+            if item:
+                app_name = self.table.item(row, 1).text()  # アプリ名を取得
+                passwords = self.aws_manager.get_passwords(self.username)
+                
+                # 実際のパスワードを取得
+                actual_password = None
+                for pwd in passwords:
+                    if pwd['app_name'] == app_name:
+                        actual_password = pwd['password']
+                        break
+                
+                if actual_password:
+                    if item.text() == '*' * 8:  # マスク表示中
+                        item.setText(actual_password)  # マスクを解除
+                    else:
+                        item.setText('*' * 8)  # マスクを設定
+
+    def update_button_states(self):
+        """選択状態に応じてボタンの有効/無効を更新"""
+        checked_rows = []
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)  # チェックボックス列
+            if item and item.checkState() == Qt.CheckState.Checked:
+                checked_rows.append(row)
+        
+        # 1つのみ選択時に有効にするボタン
+        is_single_selected = len(checked_rows) == 1
+        self.edit_button.setEnabled(is_single_selected)
+        self.copy_url_button.setEnabled(is_single_selected)
+        self.copy_username_button.setEnabled(is_single_selected)
+        self.copy_password_button.setEnabled(is_single_selected)
+        
+        # 1つ以上選択時に有効にするボタン
+        self.delete_button.setEnabled(len(checked_rows) > 0)
+
+    def get_selected_passwords(self):
+        """チェックされたパスワードの情報を取得"""
+        selected = []
+        passwords = self.aws_manager.get_passwords(self.username)
+        
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)  # チェックボックス列
+            if item and item.checkState() == Qt.CheckState.Checked:
+                app_name = self.table.item(row, 1).text()
+                for password in passwords:
+                    if password['app_name'] == app_name:
+                        selected.append(password)
+                        break
+        
+        return selected
+
+    def copy_selected_field(self, field: str):
+        """選択された行の指定フィールドをコピー"""
+        checked_rows = []
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)  # チェックボックス列
+            if item and item.checkState() == Qt.CheckState.Checked:
+                checked_rows.append(row)
+        
+        if len(checked_rows) != 1:
+            QMessageBox.warning(self, "エラー", "1つの項目を選択してください。")
+            return
+        
+        row = checked_rows[0]
+        field_mapping = {
+            'url': 2,      # URL列のインデックス
+            'username': 3,  # ユーザー名列のインデックス
+            'password': 4,  # パスワード列のインデックス
+        }
+        
+        if field in field_mapping:
+            value = self.table.item(row, field_mapping[field]).text()
+            if field == 'password':
+                # パスワードの場合は、実際の値を取得
+                passwords = self.aws_manager.get_passwords(self.username)
+                app_name = self.table.item(row, 1).text()  # アプリ名列から取得
+                for pwd in passwords:
+                    if pwd['app_name'] == app_name:
+                        value = pwd['password']
+                        break
+            
+            pyperclip.copy(value)
+            field_names = {
+                'url': 'URL',
+                'username': 'ユーザー名',
+                'password': 'パスワード'
+            }
+            QMessageBox.information(self, "コピー完了", f"{field_names[field]}をクリップボードにコピーしました。")
 
     def refresh_table(self):
         """パスワード一覧を更新"""
@@ -241,41 +358,15 @@ class MainWindow(QMainWindow):
                 self.table.setItem(i, 1, QTableWidgetItem(password.get('app_name', '')))
                 self.table.setItem(i, 2, QTableWidgetItem(password.get('url', '')))
                 self.table.setItem(i, 3, QTableWidgetItem(password.get('username', '')))
-                self.table.setItem(i, 4, QTableWidgetItem('*' * 8))
+                self.table.setItem(i, 4, QTableWidgetItem('*' * 8))  # パスワードはマスク表示
                 self.table.setItem(i, 5, QTableWidgetItem(password.get('memo', '')))
-                
-                # コピーボタン
-                action_widget = QWidget()
-                action_layout = QHBoxLayout()
-                action_layout.setContentsMargins(0, 0, 0, 0)
-                
-                copy_button = QPushButton("コピー")
-                copy_menu = QMenu(copy_button)
-                
-                copy_app_name_action = copy_menu.addAction("アプリ名をコピー")
-                copy_app_name_action.triggered.connect(
-                    lambda checked, a=password.get('app_name', ''): pyperclip.copy(a))
-                
-                copy_url_action = copy_menu.addAction("URLをコピー")
-                copy_url_action.triggered.connect(
-                    lambda checked, u=password.get('url', ''): pyperclip.copy(u))
-                
-                copy_username_action = copy_menu.addAction("ユーザー名をコピー")
-                copy_username_action.triggered.connect(
-                    lambda checked, u=password.get('username', ''): pyperclip.copy(u))
-                
-                copy_password_action = copy_menu.addAction("パスワードをコピー")
-                copy_password_action.triggered.connect(
-                    lambda checked, p=password.get('password', ''): pyperclip.copy(p))
-                
-                copy_button.setMenu(copy_menu)
-                action_layout.addWidget(copy_button)
-                
-                action_widget.setLayout(action_layout)
-                self.table.setCellWidget(i, 6, action_widget)
+            
+            # ボタンの状態を更新
+            self.update_button_states()
                 
         except Exception as e:
-            QMessageBox.warning(self, 'エラー', f'パスワード一覧の更新に失敗しました: {e}')
+            print(f"テーブル更新エラー: {e}")
+            QMessageBox.warning(self, "エラー", "パスワード一覧の更新に失敗しました。")
 
     def on_selection_changed(self, item):
         """選択状態が変更されたときの処理"""
@@ -361,7 +452,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(access_key_input)
         
         # シークレットキー
-        secret_key_label = QLabel('AWSシークレットキー:')
+        secret_key_label = QLabel('AWSシークレトキー:')
         secret_key_input = QLineEdit()
         secret_key_input.setText(self.aws_manager.credentials_manager.get_secret_key())
         secret_key_input.setEchoMode(QLineEdit.EchoMode.Password)
