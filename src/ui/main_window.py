@@ -21,15 +21,21 @@ class PasswordDialog(QDialog):
     def __init__(self, parent=None, password_data=None):
         super().__init__(parent)
         self.setWindowTitle("パスワード情報" if password_data else "新規パスワード")
-        self.setFixedSize(400, 300)
+        self.setFixedSize(400, 500)
         
         layout = QVBoxLayout()
         
-        # ウェブサイト
-        self.website_input = QLineEdit()
-        self.website_input.setPlaceholderText("ウェブサイト")
-        layout.addWidget(QLabel("ウェブサイト:"))
-        layout.addWidget(self.website_input)
+        # アプリ名
+        self.app_name_input = QLineEdit()
+        self.app_name_input.setPlaceholderText("アプリ名")
+        layout.addWidget(QLabel("アプリ名:"))
+        layout.addWidget(self.app_name_input)
+        
+        # サイトURL
+        self.url_input = QLineEdit()
+        self.url_input.setPlaceholderText("https://example.com")
+        layout.addWidget(QLabel("サイトURL:"))
+        layout.addWidget(self.url_input)
         
         # ユーザー名
         self.username_input = QLineEdit()
@@ -49,12 +55,12 @@ class PasswordDialog(QDialog):
         show_password_btn = QPushButton("表示")
         show_password_btn.clicked.connect(self.toggle_password_visibility)
         password_layout.addWidget(show_password_btn)
-        
         layout.addLayout(password_layout)
         
         # メモ
         self.memo_input = QTextEdit()
         self.memo_input.setPlaceholderText("メモ")
+        self.memo_input.setMaximumHeight(100)
         layout.addWidget(QLabel("メモ:"))
         layout.addWidget(self.memo_input)
         
@@ -71,23 +77,26 @@ class PasswordDialog(QDialog):
         
         self.setLayout(layout)
         
-        # 既存データがある場合は入力欄に設定
+        # 既存のデータがある場合は入力欄に設定
         if password_data:
-            self.website_input.setText(password_data['website'])
-            self.username_input.setText(password_data['username'])
-            self.password_input.setText(password_data['password'])
+            self.app_name_input.setText(password_data.get('app_name', ''))
+            self.url_input.setText(password_data.get('url', ''))
+            self.username_input.setText(password_data.get('username', ''))
+            self.password_input.setText(password_data.get('password', ''))
             self.memo_input.setText(password_data.get('memo', ''))
-            self.website_input.setReadOnly(True)
 
     def toggle_password_visibility(self):
+        """パスワードの表示/非表示を切り替え"""
         if self.password_input.echoMode() == QLineEdit.EchoMode.Password:
             self.password_input.setEchoMode(QLineEdit.EchoMode.Normal)
         else:
             self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
 
-    def get_data(self):
+    def get_password_data(self):
+        """入力されたパスワード情報を取得"""
         return {
-            'website': self.website_input.text(),
+            'app_name': self.app_name_input.text(),
+            'url': self.url_input.text(),
             'username': self.username_input.text(),
             'password': self.password_input.text(),
             'memo': self.memo_input.toPlainText()
@@ -111,13 +120,27 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         main_widget.setLayout(layout)
         
-        # ツールバー
+        # ツールバーの設定
         toolbar_layout = QHBoxLayout()
         
-        add_button = QPushButton("新規追加")
-        add_button.clicked.connect(self.add_password)
-        toolbar_layout.addWidget(add_button)
+        # 作成ボタン
+        create_button = QPushButton("作成")
+        create_button.clicked.connect(self.add_password)
+        toolbar_layout.addWidget(create_button)
         
+        # 編集ボタン（初期状態は無効）
+        self.edit_button = QPushButton("編集")
+        self.edit_button.setEnabled(False)
+        self.edit_button.clicked.connect(self.edit_selected_passwords)
+        toolbar_layout.addWidget(self.edit_button)
+        
+        # 削除ボタン（初期状態は無効）
+        self.delete_button = QPushButton("削除")
+        self.delete_button.setEnabled(False)
+        self.delete_button.clicked.connect(self.delete_selected_passwords)
+        toolbar_layout.addWidget(self.delete_button)
+        
+        # 更新ボタン
         refresh_button = QPushButton("更新")
         refresh_button.clicked.connect(self.refresh_table)
         toolbar_layout.addWidget(refresh_button)
@@ -125,49 +148,24 @@ class MainWindow(QMainWindow):
         toolbar_layout.addStretch()
         layout.addLayout(toolbar_layout)
         
-        # テーブル
+        # テーブルの設定
         self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["ウェブサイト", "ユーザー名", "パスワード", "メモ", "アクション"])
-        self.table.setColumnWidth(0, 200)  # ウェブサイト
-        self.table.setColumnWidth(1, 150)  # ユーザー名
-        self.table.setColumnWidth(2, 150)  # パスワード
-        self.table.setColumnWidth(3, 200)  # メモ
-        self.table.setColumnWidth(4, 100)  # アクション
+        self.table.setColumnCount(7)  # チェックボックス列を追加
+        self.table.setHorizontalHeaderLabels(["選択", "アプリ名", "サイトURL", "ユーザー名", "パスワード", "メモ", "操作"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setColumnWidth(0, 50)   # チェックボックス
+        self.table.setColumnWidth(1, 150)  # アプリ名
+        self.table.setColumnWidth(2, 200)  # URL
+        self.table.setColumnWidth(3, 150)  # ユーザー名
+        self.table.setColumnWidth(4, 100)  # パスワード
+        self.table.setColumnWidth(5, 200)  # メモ
         layout.addWidget(self.table)
         
-        # 自動ログアウトタイマーの設定
-        self.session_timer = QTimer()
-        self.session_timer.timeout.connect(self.auto_logout)
-        self.reset_session_timer()
-        
-        # イベントフィルターの設定
-        self.installEventFilter(self)
-        
-        # テーブルの初期化
-        self.refresh_table()
-
-    def reset_session_timer(self):
-        """セッションタイマーをリセット"""
-        config = configparser.ConfigParser()
-        config.read(Path.home() / '.password_manager' / 'config.ini')
-        timeout = config.getint('App', 'session_timeout', fallback=30)
-        self.session_timer.start(timeout * 60 * 1000)  # 分をミリ秒に変換
-
-    def auto_logout(self):
-        """自動ログアウト処理"""
-        QMessageBox.information(self, "セッション終了", "一定時間操作がなかったため、セッションを終了します。")
-        self.close()
-
-    def eventFilter(self, obj, event):
-        """イベントフィルター"""
-        if obj == self.table:
-            if event.type() in [QEvent.Type.MouseButtonPress, QEvent.Type.KeyPress]:
-                self.reset_clipboard_timer()
-        return super().eventFilter(obj, event)
+        # 選択状態の変更を監視
+        self.table.itemChanged.connect(self.on_selection_changed)
 
     def refresh_table(self):
-        """テスワード一覧を更新"""
+        """パスワード一覧を更新"""
         try:
             passwords = self.aws_manager.get_passwords(self.username)
             
@@ -183,11 +181,108 @@ class MainWindow(QMainWindow):
             # パスワード一覧を表示
             for i, password in enumerate(passwords):
                 self.table.insertRow(i)
-                self.table.setItem(i, 0, QTableWidgetItem(password.get('website', '')))
-                self.table.setItem(i, 1, QTableWidgetItem(password.get('username', '')))
-                self.table.setItem(i, 2, QTableWidgetItem('*' * 8))  # パスワードは表示しない
+                
+                # チェックボックス
+                checkbox_item = QTableWidgetItem()
+                checkbox_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+                checkbox_item.setCheckState(Qt.CheckState.Unchecked)
+                self.table.setItem(i, 0, checkbox_item)
+                
+                # その他の情報
+                self.table.setItem(i, 1, QTableWidgetItem(password.get('app_name', '')))
+                self.table.setItem(i, 2, QTableWidgetItem(password.get('url', '')))
+                self.table.setItem(i, 3, QTableWidgetItem(password.get('username', '')))
+                self.table.setItem(i, 4, QTableWidgetItem('*' * 8))
+                self.table.setItem(i, 5, QTableWidgetItem(password.get('memo', '')))
+                
+                # コピーボタン
+                action_widget = QWidget()
+                action_layout = QHBoxLayout()
+                action_layout.setContentsMargins(0, 0, 0, 0)
+                
+                copy_button = QPushButton("コピー")
+                copy_menu = QMenu(copy_button)
+                
+                copy_app_name_action = copy_menu.addAction("アプリ名をコピー")
+                copy_app_name_action.triggered.connect(
+                    lambda checked, a=password.get('app_name', ''): pyperclip.copy(a))
+                
+                copy_url_action = copy_menu.addAction("URLをコピー")
+                copy_url_action.triggered.connect(
+                    lambda checked, u=password.get('url', ''): pyperclip.copy(u))
+                
+                copy_username_action = copy_menu.addAction("ユーザー名をコピー")
+                copy_username_action.triggered.connect(
+                    lambda checked, u=password.get('username', ''): pyperclip.copy(u))
+                
+                copy_password_action = copy_menu.addAction("パスワードをコピー")
+                copy_password_action.triggered.connect(
+                    lambda checked, p=password.get('password', ''): pyperclip.copy(p))
+                
+                copy_button.setMenu(copy_menu)
+                action_layout.addWidget(copy_button)
+                
+                action_widget.setLayout(action_layout)
+                self.table.setCellWidget(i, 6, action_widget)
+                
         except Exception as e:
             QMessageBox.warning(self, 'エラー', f'パスワード一覧の更新に失敗しました: {e}')
+
+    def on_selection_changed(self, item):
+        """選択状態が変更されたときの処理"""
+        if item and item.column() == 0:  # チェックボックス列の変更のみ処理
+            selected_count = self.get_selected_count()
+            self.edit_button.setEnabled(selected_count == 1)  # 1つ選択時のみ編集可能
+            self.delete_button.setEnabled(selected_count > 0)  # 1つ以上選択時に削除可能
+
+    def get_selected_count(self):
+        """選択されているアイテムの数を取得"""
+        count = 0
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item and item.checkState() == Qt.CheckState.Checked:
+                count += 1
+        return count
+
+    def get_selected_passwords(self):
+        """選択されているパスワード情報を取得"""
+        selected = []
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item and item.checkState() == Qt.CheckState.Checked:
+                password_data = {
+                    'app_name': self.table.item(row, 1).text(),
+                    'url': self.table.item(row, 2).text(),
+                    'username': self.table.item(row, 3).text(),
+                    'password': self.aws_manager.get_passwords(self.username)[row]['password'],
+                    'memo': self.table.item(row, 5).text()
+                }
+                selected.append(password_data)
+        return selected
+
+    def edit_selected_passwords(self):
+        """選択されているパスワードを編集"""
+        selected = self.get_selected_passwords()
+        if len(selected) == 1:
+            self.edit_password(selected[0])
+
+    def delete_selected_passwords(self):
+        """選択されているパスワードを削除"""
+        selected = self.get_selected_passwords()
+        if not selected:
+            return
+            
+        if len(selected) == 1:
+            message = f"'{selected[0]['app_name']}'を削除してもよろしいですか？"
+        else:
+            message = f"{len(selected)}件のパスワードを削除してもよろしいですか？"
+            
+        reply = QMessageBox.question(self, '確認', message,
+                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                                   
+        if reply == QMessageBox.StandardButton.Yes:
+            for password in selected:
+                self.delete_password(password['app_name'])
 
     def show_credentials_warning(self):
         """認証情報が設定されていない場合の警告を表示"""
@@ -251,9 +346,9 @@ class MainWindow(QMainWindow):
         """新規パスワードの追加"""
         dialog = PasswordDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            data = dialog.get_data()
-            if not data['website'] or not data['username'] or not data['password']:
-                QMessageBox.warning(self, "エラー", "ウェブサイト、ユーザー名、パスワードは必須です。")
+            data = dialog.get_password_data()
+            if not data['app_name'] or not data['username'] or not data['password']:
+                QMessageBox.warning(self, "エラー", "アプリ名、ユーザー名、パスワードは必須です。")
                 return
             
             if self.aws_manager.save_password(self.username, data):
@@ -265,7 +360,7 @@ class MainWindow(QMainWindow):
         """パスワードの編集"""
         dialog = PasswordDialog(self, password_data)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            data = dialog.get_data()
+            data = dialog.get_password_data()
             if not data['username'] or not data['password']:
                 QMessageBox.warning(self, "エラー", "ユーザー名とパスワードは必須です。")
                 return
@@ -275,14 +370,9 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.warning(self, "エラー", "パスワードの更新に失敗しました。")
 
-    def delete_password(self, website):
+    def delete_password(self, app_name):
         """パスワードの削除"""
-        reply = QMessageBox.question(self, "確認", 
-                                   f"'{website}' のパスワード情報を削除してもよろしいですか？",
-                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            if self.aws_manager.delete_password(self.username, website):
-                self.refresh_table()
-            else:
-                QMessageBox.warning(self, "エラー", "パスワードの削除に失敗しました。") 
+        if self.aws_manager.delete_password(self.username, app_name):
+            self.refresh_table()
+        else:
+            QMessageBox.warning(self, "エラー", "パスワードの削除に失敗しました。") 

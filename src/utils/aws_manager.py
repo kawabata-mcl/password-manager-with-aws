@@ -70,32 +70,43 @@ class AWSManager:
             return False
         return datetime.now() - self.cache_timestamp < timedelta(seconds=self.cache_duration)
 
-    def get_passwords(self, username: str) -> List[Dict]:
+    def get_passwords(self, username: str) -> list:
         """
-        ユーザーのパスワード情報を取得
-        
+        指定されたユーザーのパスワード一覧を取得
+
         Args:
             username (str): ユーザー名
-            
+
         Returns:
-            List[Dict]: パスワード情報のリスト
+            list: パスワード情報のリスト
         """
         try:
             self._check_credentials()
             
-            if self._is_cache_valid():
-                return self.cache.get(username, [])
+            # キャッシュチェック
+            if self.cache_timestamp and (datetime.now() - self.cache_timestamp).total_seconds() < self.cache_duration:
+                if username in self.cache:
+                    return self._migrate_password_data(self.cache[username])
 
-            response = self.ssm.get_parameter(
-                Name=self._get_parameter_path(username),
-                WithDecryption=True
-            )
-            data = json.loads(response['Parameter']['Value'])
-            self.cache[username] = data
-            self.cache_timestamp = datetime.now()
-            return data
-        except self.ssm.exceptions.ParameterNotFound:
-            return []
+            parameter_path = self._get_parameter_path(username)
+            try:
+                response = self.ssm.get_parameter(
+                    Name=parameter_path,
+                    WithDecryption=True
+                )
+                passwords = json.loads(response['Parameter']['Value'])
+                
+                # データ形式の移行
+                passwords = self._migrate_password_data(passwords)
+                
+                # キャッシュ更新
+                self.cache[username] = passwords
+                self.cache_timestamp = datetime.now()
+                
+                return passwords
+            except self.ssm.exceptions.ParameterNotFound:
+                return []
+            
         except self.NoCredentialsError as e:
             print(f"認証エラー: {e}")
             return []
@@ -103,71 +114,141 @@ class AWSManager:
             print(f"パスワード取得エラー: {e}")
             return []
 
-    def save_password(self, username: str, password_data: Dict) -> bool:
+    def _migrate_password_data(self, passwords: list) -> list:
+        """
+        古い形式のパスワードデータを新しい形式に移行
+
+        Args:
+            passwords (list): パスワード情報のリスト
+
+        Returns:
+            list: 移行後のパスワード情報のリスト
+        """
+        migrated_passwords = []
+        for password in passwords:
+            migrated_password = password.copy()
+            
+            # 古い形式から新しい形式への変換
+            if 'website' in password and 'app_name' not in password:
+                migrated_password['app_name'] = password['website']
+                migrated_password['url'] = password.get('url', '')
+                del migrated_password['website']
+            
+            # 必須フィールドの確認と設定
+            if 'app_name' not in migrated_password:
+                migrated_password['app_name'] = ''
+            if 'url' not in migrated_password:
+                migrated_password['url'] = ''
+            if 'username' not in migrated_password:
+                migrated_password['username'] = ''
+            if 'password' not in migrated_password:
+                migrated_password['password'] = ''
+            if 'memo' not in migrated_password:
+                migrated_password['memo'] = ''
+            
+            migrated_passwords.append(migrated_password)
+        
+        return migrated_passwords
+
+    def save_password(self, username: str, password_data: dict) -> bool:
         """
         パスワード情報を保存
-        
+
         Args:
             username (str): ユーザー名
-            password_data (Dict): パスワード情報
-            
-        Returns:
-            bool: 保存成功の場合True
-        """
-        current_data = self.get_passwords(username)
-        
-        # 既存のデータを更新または新規追加
-        updated = False
-        for item in current_data:
-            if item['website'] == password_data['website']:
-                item.update(password_data)
-                updated = True
-                break
-        
-        if not updated:
-            current_data.append(password_data)
+            password_data (dict): パスワード情報
+                {
+                    'app_name': str,
+                    'url': str,
+                    'username': str,
+                    'password': str,
+                    'memo': str
+                }
 
+        Returns:
+            bool: 保存に成功した場合はTrue
+        """
         try:
+            self._check_credentials()
+            
+            # 既存のパスワード一覧を取得
+            passwords = self.get_passwords(username)
+            
+            # データの検証
+            if 'app_name' not in password_data:
+                raise ValueError("必須フィールド 'app_name' が見つかりません")
+            
+            # 必須フィールドの確認と設定
+            password_data.setdefault('url', '')
+            password_data.setdefault('username', '')
+            password_data.setdefault('password', '')
+            password_data.setdefault('memo', '')
+            
+            # 既存のパスワードを更新または新規追加
+            updated = False
+            for item in passwords:
+                if item['app_name'] == password_data['app_name']:
+                    item.update(password_data)
+                    updated = True
+                    break
+            
+            if not updated:
+                passwords.append(password_data)
+            
+            # パラメータストアに保存
             self.ssm.put_parameter(
                 Name=self._get_parameter_path(username),
-                Value=json.dumps(current_data),
+                Value=json.dumps(passwords),
                 Type='SecureString',
                 Overwrite=True
             )
-            self.cache[username] = current_data
+            
+            # キャッシュを更新
+            self.cache[username] = passwords
             self.cache_timestamp = datetime.now()
+            
             return True
-        except Exception:
+            
+        except Exception as e:
+            print(f"パスワード保存エラー: {e}")
             return False
 
-    def delete_password(self, username: str, website: str) -> bool:
+    def delete_password(self, username: str, app_name: str) -> bool:
         """
         パスワード情報を削除
-        
+
         Args:
             username (str): ユーザー名
-            website (str): 削除対象のウェブサイト
-            
-        Returns:
-            bool: 削除成功の場合True
-        """
-        current_data = self.get_passwords(username)
-        new_data = [item for item in current_data if item['website'] != website]
-        
-        if len(new_data) == len(current_data):
-            return False
+            app_name (str): アプリ名
 
+        Returns:
+            bool: 削除に成功した場合はTrue
+        """
         try:
+            self._check_credentials()
+            
+            # 既存のパスワード一覧を取得
+            passwords = self.get_passwords(username)
+            
+            # 指定されたアプリ名のパスワードを削除
+            passwords = [p for p in passwords if p['app_name'] != app_name]
+            
+            # パラメータストアに保存
             self.ssm.put_parameter(
                 Name=self._get_parameter_path(username),
-                Value=json.dumps(new_data),
+                Value=json.dumps(passwords),
                 Type='SecureString',
                 Overwrite=True
             )
-            self.cache[username] = new_data
+            
+            # キャッシュを更新
+            self.cache[username] = passwords
             self.cache_timestamp = datetime.now()
+            
             return True
-        except Exception:
+            
+        except Exception as e:
+            print(f"パスワード削除エラー: {e}")
             return False
 
     def update_credentials(self, access_key: str, secret_key: str):
