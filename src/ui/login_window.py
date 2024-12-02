@@ -8,19 +8,67 @@
 """
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
-                           QLabel, QLineEdit, QPushButton, QMessageBox)
+                           QLabel, QLineEdit, QPushButton, QMessageBox,
+                           QDialog, QHBoxLayout)
 from PyQt6.QtCore import Qt
 from .main_window import MainWindow
+from ..utils.credentials_manager import CredentialsManager
 import json
 import os
 from cryptography.fernet import Fernet
 from pathlib import Path
+
+class AWSCredentialsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('AWS認証情報の設定')
+        self.setFixedSize(400, 200)
+        
+        layout = QVBoxLayout()
+        
+        # アクセスキー
+        access_key_label = QLabel('AWSアクセスキー:')
+        self.access_key_input = QLineEdit()
+        self.access_key_input.setPlaceholderText('AWSアクセスキーを入力')
+        layout.addWidget(access_key_label)
+        layout.addWidget(self.access_key_input)
+        
+        # シークレットキー
+        secret_key_label = QLabel('AWSシークレットキー:')
+        self.secret_key_input = QLineEdit()
+        self.secret_key_input.setPlaceholderText('AWSシークレットキーを入力')
+        self.secret_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        layout.addWidget(secret_key_label)
+        layout.addWidget(self.secret_key_input)
+        
+        # ボタン
+        button_layout = QHBoxLayout()
+        save_button = QPushButton('保存')
+        save_button.clicked.connect(self.accept)
+        cancel_button = QPushButton('キャンセル')
+        cancel_button.clicked.connect(self.reject)
+        
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+    
+    def get_credentials(self):
+        """入力された認証情報を取得"""
+        return {
+            'access_key': self.access_key_input.text(),
+            'secret_key': self.secret_key_input.text()
+        }
 
 class LoginWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("パスワードマネージャー - ログイン")
         self.setFixedSize(400, 200)
+        
+        # 認証情報マネージャーの初期化
+        self.credentials_manager = CredentialsManager()
         
         # メインウィジェットとレイアウトの設定
         main_widget = QWidget()
@@ -119,10 +167,38 @@ class LoginWindow(QMainWindow):
                                   f"ユーザー名またはパスワードが正しくありません。\n残り試行回数: {remaining}")
             return
         
+        # 初回ログインチェック
+        if not self.has_aws_credentials():
+            if not self.show_aws_credentials_dialog():
+                return  # AWS認証情報の入力をキャンセルした場合
+        
         # ログイン成功
         self.main_window = MainWindow(username)
         self.main_window.show()
         self.close()
+
+    def has_aws_credentials(self):
+        """AWS認証情報が設定されているかチェック"""
+        access_key = self.credentials_manager.get_access_key()
+        secret_key = self.credentials_manager.get_secret_key()
+        return bool(access_key and secret_key)
+
+    def show_aws_credentials_dialog(self):
+        """AWS認証情報入力ダイアログを表示"""
+        dialog = AWSCredentialsDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            credentials = dialog.get_credentials()
+            if not credentials['access_key'] or not credentials['secret_key']:
+                QMessageBox.warning(self, "エラー", "AWS認証情報を入力してください。")
+                return self.show_aws_credentials_dialog()
+            
+            try:
+                self.credentials_manager.save_credentials(credentials)
+                return True
+            except Exception as e:
+                QMessageBox.critical(self, "エラー", f"AWS認証情報の保存に失敗しました: {e}")
+                return False
+        return False
 
     def register(self):
         """新規ユーザー登録"""
@@ -139,9 +215,13 @@ class LoginWindow(QMainWindow):
             QMessageBox.warning(self, "エラー", "このユーザー名は既に使用されています。")
             return
         
+        # AWS認証情報の入力を要求
+        if not self.show_aws_credentials_dialog():
+            return  # AWS認証情報の入力をキャンセルした場合
+        
         users[username] = password
         self.save_users(users)
         
         QMessageBox.information(self, "成功", "ユーザー登録が完了しました。")
         self.username_input.clear()
-        self.password_input.clear() 
+        self.password_input.clear()

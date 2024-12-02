@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                            QPushButton, QTableWidget, QTableWidgetItem,
                            QMessageBox, QMenu, QDialog, QLabel, QLineEdit,
                            QTextEdit)
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QEvent
 import pyperclip
 from ..utils.aws_manager import AWSManager
 import configparser
@@ -160,70 +160,92 @@ class MainWindow(QMainWindow):
         self.close()
 
     def eventFilter(self, obj, event):
-        """イベントフィルター（ユーザーアクションの検出）"""
-        if event.type() in [Qt.EventType.MouseButtonPress, Qt.EventType.KeyPress]:
-            self.reset_session_timer()
+        """イベントフィルター"""
+        if obj == self.table:
+            if event.type() in [QEvent.Type.MouseButtonPress, QEvent.Type.KeyPress]:
+                self.reset_clipboard_timer()
         return super().eventFilter(obj, event)
 
     def refresh_table(self):
-        """テーブルの内容を更新"""
-        passwords = self.aws_manager.get_passwords(self.username)
-        self.table.setRowCount(len(passwords))
+        """テスワード一覧を更新"""
+        try:
+            passwords = self.aws_manager.get_passwords(self.username)
+            
+            # テーブルをクリア
+            self.table.setRowCount(0)
+            
+            if not passwords:
+                if self.aws_manager.ssm is None:
+                    # 認証情報が設定されていない場合
+                    self.show_credentials_warning()
+                    return
+                    
+            # パスワード一覧を表示
+            for i, password in enumerate(passwords):
+                self.table.insertRow(i)
+                self.table.setItem(i, 0, QTableWidgetItem(password.get('website', '')))
+                self.table.setItem(i, 1, QTableWidgetItem(password.get('username', '')))
+                self.table.setItem(i, 2, QTableWidgetItem('*' * 8))  # パスワードは表示しない
+        except Exception as e:
+            QMessageBox.warning(self, 'エラー', f'パスワード一覧の更新に失敗しました: {e}')
+
+    def show_credentials_warning(self):
+        """認証情報が設定されていない場合の警告を表示"""
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle('認証情報が必要です')
+        msg.setText('AWS認証情報が設定されていません')
+        msg.setInformativeText('AWSの認証情報を設定してください。設定画面を開きますか？')
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         
-        for row, data in enumerate(passwords):
-            # ウェブサイト
-            website_item = QTableWidgetItem(data['website'])
-            website_item.setFlags(website_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.table.setItem(row, 0, website_item)
-            
-            # ユーザー名
-            username_item = QTableWidgetItem(data['username'])
-            username_item.setFlags(username_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.table.setItem(row, 1, username_item)
-            
-            # パスワード（マスク表示）
-            password_item = QTableWidgetItem("*" * 8)
-            password_item.setFlags(password_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.table.setItem(row, 2, password_item)
-            
-            # メモ
-            memo_item = QTableWidgetItem(data.get('memo', ''))
-            memo_item.setFlags(memo_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.table.setItem(row, 3, memo_item)
-            
-            # アクションボタンのセル
-            action_widget = QWidget()
-            action_layout = QHBoxLayout()
-            action_layout.setContentsMargins(0, 0, 0, 0)
-            
-            # コピーボタン（ドロップダウンメニュー付き）
-            copy_button = QPushButton("コピー")
-            copy_menu = QMenu(copy_button)
-            
-            copy_username_action = copy_menu.addAction("ユーザー名をコピー")
-            copy_username_action.triggered.connect(lambda checked, u=data['username']: pyperclip.copy(u))
-            
-            copy_password_action = copy_menu.addAction("パスワードをコピー")
-            copy_password_action.triggered.connect(lambda checked, p=data['password']: pyperclip.copy(p))
-            
-            copy_website_action = copy_menu.addAction("ウェブサイトをコピー")
-            copy_website_action.triggered.connect(lambda checked, w=data['website']: pyperclip.copy(w))
-            
-            copy_button.setMenu(copy_menu)
-            action_layout.addWidget(copy_button)
-            
-            # 編集ボタン
-            edit_button = QPushButton("編集")
-            edit_button.clicked.connect(lambda checked, d=data: self.edit_password(d))
-            action_layout.addWidget(edit_button)
-            
-            # 削除ボタン
-            delete_button = QPushButton("削除")
-            delete_button.clicked.connect(lambda checked, w=data['website']: self.delete_password(w))
-            action_layout.addWidget(delete_button)
-            
-            action_widget.setLayout(action_layout)
-            self.table.setCellWidget(row, 4, action_widget)
+        if msg.exec() == QMessageBox.StandardButton.Yes:
+            self.show_settings_dialog()
+
+    def show_settings_dialog(self):
+        """設定画面を表示"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle('AWS設定')
+        dialog.setFixedSize(400, 200)
+        
+        layout = QVBoxLayout()
+        
+        # アクセスキー
+        access_key_label = QLabel('AWSアクセスキー:')
+        access_key_input = QLineEdit()
+        access_key_input.setText(self.aws_manager.credentials_manager.get_access_key())
+        layout.addWidget(access_key_label)
+        layout.addWidget(access_key_input)
+        
+        # シークレットキー
+        secret_key_label = QLabel('AWSシークレットキー:')
+        secret_key_input = QLineEdit()
+        secret_key_input.setText(self.aws_manager.credentials_manager.get_secret_key())
+        secret_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        layout.addWidget(secret_key_label)
+        layout.addWidget(secret_key_input)
+        
+        # ボタン
+        button_layout = QHBoxLayout()
+        save_button = QPushButton('保存')
+        cancel_button = QPushButton('キャンセル')
+        
+        def save_credentials():
+            self.aws_manager.update_credentials(
+                access_key_input.text(),
+                secret_key_input.text()
+            )
+            dialog.accept()
+            self.refresh_table()
+        
+        save_button.clicked.connect(save_credentials)
+        cancel_button.clicked.connect(dialog.reject)
+        
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+        dialog.setLayout(layout)
+        dialog.exec()
 
     def add_password(self):
         """新規パスワードの追加"""

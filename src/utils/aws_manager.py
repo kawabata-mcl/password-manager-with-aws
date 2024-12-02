@@ -15,35 +15,50 @@ from datetime import datetime, timedelta
 from .credentials_manager import CredentialsManager
 
 class AWSManager:
-    def __init__(self):
+    class NoCredentialsError(Exception):
+        """認証情報が設定されていない場合のエラー"""
+        pass
+
+    def __init__(self, region: str = 'ap-northeast-1'):
         """
         AWSマネージャーの初期化
+
+        Args:
+            region (str): AWS リージョン名。デフォルトは 'ap-northeast-1'
         """
+        self.region = region
         self.credentials_manager = CredentialsManager()
-        self._setup_aws_client()
+        self._setup_session()
         self.cache = {}
         self.cache_timestamp = None
         self.cache_duration = 300  # 5分
 
-    def _setup_aws_client(self):
-        """AWSクライアントのセットアップ"""
-        credentials = self.credentials_manager.load_credentials()
-        self.ssm = boto3.client(
-            'ssm',
-            aws_access_key_id=credentials.get('aws_access_key_id'),
-            aws_secret_access_key=credentials.get('aws_secret_access_key'),
-            region_name=credentials.get('region', 'ap-northeast-1')
-        )
-
-    def update_credentials(self, credentials: Dict):
-        """
-        AWS認証情報の更新
+    def _setup_session(self):
+        """AWSセッションのセットアップ"""
+        access_key = self.credentials_manager.get_access_key()
+        secret_key = self.credentials_manager.get_secret_key()
         
-        Args:
-            credentials (Dict): 新しい認証情報
+        if not access_key or not secret_key:
+            self.session = None
+            self.ssm = None
+            return
+
+        self.session = boto3.Session(
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=self.region
+        )
+        self.ssm = self.session.client('ssm')
+
+    def _check_credentials(self):
         """
-        self.credentials_manager.save_credentials(credentials)
-        self._setup_aws_client()
+        認証情報が設定されているか確認
+
+        Raises:
+            NoCredentialsError: 認証情報が設定されていない場合
+        """
+        if self.ssm is None:
+            raise self.NoCredentialsError("AWS認証情報が設定されていません。設定画面から認証情報を設定してください。")
 
     def _get_parameter_path(self, username: str) -> str:
         """パラメータパスの生成"""
@@ -65,10 +80,12 @@ class AWSManager:
         Returns:
             List[Dict]: パスワード情報のリスト
         """
-        if self._is_cache_valid():
-            return self.cache.get(username, [])
-
         try:
+            self._check_credentials()
+            
+            if self._is_cache_valid():
+                return self.cache.get(username, [])
+
             response = self.ssm.get_parameter(
                 Name=self._get_parameter_path(username),
                 WithDecryption=True
@@ -78,6 +95,12 @@ class AWSManager:
             self.cache_timestamp = datetime.now()
             return data
         except self.ssm.exceptions.ParameterNotFound:
+            return []
+        except self.NoCredentialsError as e:
+            print(f"認証エラー: {e}")
+            return []
+        except Exception as e:
+            print(f"パスワード取得エラー: {e}")
             return []
 
     def save_password(self, username: str, password_data: Dict) -> bool:
@@ -145,4 +168,16 @@ class AWSManager:
             self.cache_timestamp = datetime.now()
             return True
         except Exception:
-            return False 
+            return False
+
+    def update_credentials(self, access_key: str, secret_key: str):
+        """
+        AWS認証情報の更新
+
+        Args:
+            access_key (str): AWSアクセスキー
+            secret_key (str): AWSシークレットキー
+        """
+        self.credentials_manager.save_credentials(access_key, secret_key)
+        self._setup_session()
+  

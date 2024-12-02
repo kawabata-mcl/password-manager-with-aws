@@ -52,6 +52,55 @@ class CredentialsManager:
     def save_credentials(self, credentials: dict):
         """
         AWS認証情報を暗号化して保存
+
+        Args:
+            credentials (dict): 認証情報を含む辞書
+                              {'access_key': str, 'secret_key': str}
+        """
+        encrypted_data = self.cipher_suite.encrypt(json.dumps(credentials).encode())
+        with open(self.credentials_path, 'wb') as f:
+            f.write(encrypted_data)
+
+    def load_credentials(self) -> dict:
+        """
+        暗号化された認証情報を読み込む
+
+        Returns:
+            dict: 認証情報を含む辞書
+        """
+        if not self.credentials_path.exists():
+            return {'access_key': '', 'secret_key': ''}
+        
+        try:
+            with open(self.credentials_path, 'rb') as f:
+                encrypted_data = f.read()
+                decrypted_data = self.cipher_suite.decrypt(encrypted_data)
+                return json.loads(decrypted_data.decode())
+        except Exception as e:
+            print(f"認証情報の読み込みエラー: {e}")
+            return {'access_key': '', 'secret_key': ''}
+
+    def get_access_key(self) -> str:
+        """
+        AWSアクセスキーを取得
+
+        Returns:
+            str: AWSアクセスキー
+        """
+        return self.load_credentials().get('access_key', '')
+
+    def get_secret_key(self) -> str:
+        """
+        AWSシークレットキーを取得
+
+        Returns:
+            str: AWSシークレットキー
+        """
+        return self.load_credentials().get('secret_key', '')
+
+    def save_credentials(self, credentials: dict):
+        """
+        AWS認証情報を暗号化して保存
         
         Args:
             credentials (dict): AWS認証情報を含む辞書
