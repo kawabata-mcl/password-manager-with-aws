@@ -42,8 +42,8 @@ password-manager/
 ### 1. リポジトリのクローン
 
 ```bash
-git clone https://github.com/yourusername/password-manager.git
-cd password-manager
+git clone https://github.com/kawabata-mcl/password-manager-with-aws.git
+cd password-manager-with-aws
 ```
 
 ### 2. AWS CLIのセットアップ
@@ -84,18 +84,17 @@ cd password-manager
 
 3. アプリケーション用の認証情報の取得
    ```bash
-   # パラメータ名の取得
-   PARAM_NAME=$(aws cloudformation describe-stacks \
+   # シークレットのARNを取得
+   SECRET_ARN=$(aws cloudformation describe-stacks \
      --stack-name password-manager-iam \
-     --query 'Stacks[0].Outputs[?OutputKey==`ParameterName`].OutputValue' \
+     --query 'Stacks[0].Outputs[?OutputKey==`SecretArn`].OutputValue' \
      --output text \
      --profile password-manager-admin)
 
-   # 認証情報の取得（暗号化された状態で取得）
-   aws ssm get-parameter \
-     --name $PARAM_NAME \
-     --with-decryption \
-     --query 'Parameter.Value' \
+   # 認証情報の取得
+   aws secretsmanager get-secret-value \
+     --secret-id $SECRET_ARN \
+     --query 'SecretString' \
      --output text \
      --profile password-manager-admin
    ```
@@ -204,6 +203,10 @@ password_cache_duration = 300
 
 ### 1. AWSリソースの削除
 
+> **Note**: コマンド例では `password-manager-admin` というプロファイル名を使用しています。
+> 異なるプロファイル名を使用している場合は、`--profile password-manager-admin` の部分を
+> 実際に使用しているプロファイル名に置き換えてください。
+
 1. AWS CLIで認証情報を設定していない場合：
    ```bash
    aws configure --profile password-manager-admin
@@ -213,14 +216,14 @@ password_cache_duration = 300
    ```bash
    aws cloudformation delete-stack \
      --stack-name password-manager-iam \
-     --profile password-manager-admin
+     --profile password-manager-admin  # プロファイル名は適宜変更
    ```
 
 3. 削除完了の確認：
    ```bash
    aws cloudformation wait stack-delete-complete \
      --stack-name password-manager-iam \
-     --profile password-manager-admin
+     --profile password-manager-admin  # プロファイル名は適宜変更
    ```
 
 ### 2. ローカルファイルの削除
@@ -254,14 +257,17 @@ password_cache_duration = 300
 
 管理用のプロファイルが不要な場合：
 
+> **Note**: 以下のコマンドは、プロファイル名が `password-manager-admin` の場合の例です。
+> 異なるプロファイル名を使用している場合は、ファイル名を適宜変更してください。
+
 #### Windows
 ```cmd
-del "%USERPROFILE%\.aws\credentials.password-manager-admin"
+del "%USERPROFILE%\.aws\credentials.password-manager-admin"  # プロファイル名は適宜変更
 ```
 
 #### macOS
 ```bash
-rm ~/.aws/credentials.password-manager-admin
+rm ~/.aws/credentials.password-manager-admin  # プロファイル名は適宜変更
 ```
 
 ## 注意事項
