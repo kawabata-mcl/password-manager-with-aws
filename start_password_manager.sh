@@ -8,9 +8,11 @@ if [ ! -d "venv" ]; then
     echo "仮想環境をセットアップしています..."
     python3 -m venv venv
     source venv/bin/activate
-    pip install -r requirements.txt
+    python3 -m pip install --upgrade pip
+    pip install -r requirements.txt --no-warn-script-location
 else
     source venv/bin/activate
+    python3 -m pip install --upgrade pip
 fi
 
 echo "パスワードマネージャーを起動しています..."
