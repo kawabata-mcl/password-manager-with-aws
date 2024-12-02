@@ -275,7 +275,3 @@ rm ~/.aws/credentials.password-manager-admin
 - AWS Parameter Storeの標準パラメータを使用（低コスト）
 - ローカルキャッシュによりAPI呼び出しを最小限に抑制
 - 概算コスト：月額1ドル未満（通常使用の場合）
-
-## ライセンス
-
-MIT License
