@@ -24,6 +24,167 @@ import os
 from cryptography.fernet import Fernet
 from pathlib import Path
 
+class RegisterDialog(QDialog):
+    def __init__(self, parent=None):
+        """
+        新規ユーザー登録ダイアログの初期化
+
+        Args:
+            parent (QWidget, optional): 親ウィジェット
+
+        Attributes:
+            username_input (QLineEdit): ユーザー名入力フィールド
+            password_input (QLineEdit): パスワード入力フィールド
+            password_confirm_input (QLineEdit): パスワード確認入力フィールド
+            access_key_input (QLineEdit): AWSアクセスキー入力フィールド
+            secret_key_input (QLineEdit): AWSシークレットキー入力フィールド
+        """
+        super().__init__(parent)
+        self.setWindowTitle('新規ユーザー登録')
+        self.setFixedSize(400, 350)
+        
+        layout = QVBoxLayout()
+        
+        # ユーザー名
+        username_label = QLabel('ユーザー名:')
+        self.username_input = QLineEdit()
+        self.username_input.setPlaceholderText('ユーザー名を入力')
+        layout.addWidget(username_label)
+        layout.addWidget(self.username_input)
+        
+        # パスワード
+        password_label = QLabel('パスワード:')
+        layout.addWidget(password_label)
+        
+        password_layout = QHBoxLayout()
+        self.password_input = QLineEdit()
+        self.password_input.setPlaceholderText('パスワードを入力')
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        password_layout.addWidget(self.password_input)
+        
+        show_password_btn = QPushButton("表示")
+        show_password_btn.setFixedWidth(60)
+        show_password_btn.clicked.connect(lambda: self.toggle_password_visibility(self.password_input))
+        password_layout.addWidget(show_password_btn)
+        layout.addLayout(password_layout)
+        
+        # パスワード確認
+        password_confirm_label = QLabel('パスワード（確認）:')
+        layout.addWidget(password_confirm_label)
+        
+        password_confirm_layout = QHBoxLayout()
+        self.password_confirm_input = QLineEdit()
+        self.password_confirm_input.setPlaceholderText('パスワードを再入力')
+        self.password_confirm_input.setEchoMode(QLineEdit.EchoMode.Password)
+        password_confirm_layout.addWidget(self.password_confirm_input)
+        
+        show_password_confirm_btn = QPushButton("表示")
+        show_password_confirm_btn.setFixedWidth(60)
+        show_password_confirm_btn.clicked.connect(lambda: self.toggle_password_visibility(self.password_confirm_input))
+        password_confirm_layout.addWidget(show_password_confirm_btn)
+        layout.addLayout(password_confirm_layout)
+        
+        # AWSアクセスキー
+        access_key_label = QLabel('AWSアクセスキー:')
+        self.access_key_input = QLineEdit()
+        self.access_key_input.setPlaceholderText('AWSアクセスキーを入力')
+        layout.addWidget(access_key_label)
+        layout.addWidget(self.access_key_input)
+        
+        # AWSシークレットキー
+        secret_key_label = QLabel('AWSシークレットキー:')
+        layout.addWidget(secret_key_label)
+        
+        secret_key_layout = QHBoxLayout()
+        self.secret_key_input = QLineEdit()
+        self.secret_key_input.setPlaceholderText('AWSシークレットキーを入力')
+        self.secret_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        secret_key_layout.addWidget(self.secret_key_input)
+        
+        show_secret_key_btn = QPushButton("表示")
+        show_secret_key_btn.setFixedWidth(60)
+        show_secret_key_btn.clicked.connect(lambda: self.toggle_password_visibility(self.secret_key_input))
+        secret_key_layout.addWidget(show_secret_key_btn)
+        layout.addLayout(secret_key_layout)
+        
+        # ボタン
+        button_layout = QHBoxLayout()
+        register_button = QPushButton('登録')
+        register_button.clicked.connect(self.validate_and_accept)
+        cancel_button = QPushButton('キャンセル')
+        cancel_button.clicked.connect(self.reject)
+        
+        button_layout.addWidget(register_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+
+    def toggle_password_visibility(self, input_field: QLineEdit):
+        """
+        パスワードの表示/非表示を切り替え
+
+        Args:
+            input_field (QLineEdit): 表示/非表示を切り替える入力フィールド
+        """
+        if input_field.echoMode() == QLineEdit.EchoMode.Password:
+            input_field.setEchoMode(QLineEdit.EchoMode.Normal)
+        else:
+            input_field.setEchoMode(QLineEdit.EchoMode.Password)
+
+    def validate_and_accept(self):
+        """
+        入力内容を検証して登録を実行
+
+        以下の条件をチェックします：
+        - すべての必須フィールドが入力されていること
+        - パスワードと確認用パスワードが一致すること
+        - ユーザー名が有効な文字のみを含むこと
+        """
+        username = self.username_input.text()
+        password = self.password_input.text()
+        password_confirm = self.password_confirm_input.text()
+        access_key = self.access_key_input.text()
+        secret_key = self.secret_key_input.text()
+        
+        # 必須フィールドのチェック
+        if not all([username, password, password_confirm, access_key, secret_key]):
+            QMessageBox.warning(self, "エラー", "すべての項目を入力してください。")
+            return
+        
+        # パスワード一致チェック
+        if password != password_confirm:
+            QMessageBox.warning(self, "エラー", "パスワードが一致しません。")
+            return
+        
+        # ユーザー名の文字チェック
+        if not all(c.isalnum() or c in '_-' for c in username):
+            QMessageBox.warning(self, "エラー", 
+                              "ユーザー名には英数字とアンダースコア、ハイフンのみ使用できます。")
+            return
+        
+        self.accept()
+
+    def get_registration_data(self):
+        """
+        登録情報を取得
+
+        Returns:
+            dict: 登録情報を含む辞書
+                {
+                    'username': str,
+                    'password': str,
+                    'aws_access_key': str,
+                    'aws_secret_key': str
+                }
+        """
+        return {
+            'username': self.username_input.text(),
+            'password': self.password_input.text(),
+            'aws_access_key': self.access_key_input.text(),
+            'aws_secret_key': self.secret_key_input.text()
+        }
+
 class AWSCredentialsDialog(QDialog):
     def __init__(self, parent=None):
         """
@@ -146,7 +307,7 @@ class LoginWindow(QMainWindow):
         
         # 新規登録ボタン（左）
         register_button = QPushButton('新規登録')
-        register_button.clicked.connect(self.register)
+        register_button.clicked.connect(self.show_register_dialog)
         register_button.setFixedWidth(100)
         button_layout.addWidget(register_button)
         
@@ -260,11 +421,9 @@ class LoginWindow(QMainWindow):
         ログイン処理を実行
 
         ユーザー名とパスワードを検証し、正しい場合はメインウィンドウを表示します。
-        初回ログイン時はAWS認証情報の設定を要求します。
 
         Note:
             - ログイン試行回数が上限に達した場合、アプリケーションは終了します
-            - AWS認証情報が未設定の場合、設定ダイアログを表示します
         """
         username = self.username_input.text()
         password = self.password_input.text()
@@ -275,22 +434,36 @@ class LoginWindow(QMainWindow):
         
         users = self.load_users()
         
-        if username not in users or users[username] != password:
+        # ログイン試行回数のチェック
+        if self.login_attempts >= self.max_attempts:
+            QMessageBox.critical(self, "エラー", "ログイン試行回数が上限に達しました。\nアプリケーションを終了します。")
+            self.close()
+            return
+
+        # ユーザーの存在チェック
+        if username not in users:
             self.login_attempts += 1
             remaining = self.max_attempts - self.login_attempts
-            
-            if remaining == 0:
-                QMessageBox.critical(self, "エラー", "ログイン試行回数が上限に達しました。\nアプリケーションを終了します。")
-                self.close()
-            else:
-                QMessageBox.warning(self, "エラー", 
-                                  f"ユーザー名またはパスワードが正しくありません。\n残り試行回数: {remaining}")
+            QMessageBox.warning(
+                self,
+                "エラー",
+                f"ユーザー '{username}' は登録されていません。\n"
+                "新規登録ボタンから登録してください。\n"
+                f"残り試行回数: {remaining}"
+            )
             return
         
-        # 初回ログインチェック
-        if not self.has_aws_credentials():
-            if not self.show_aws_credentials_dialog():
-                return  # AWS認証情報の入力をキャンセルした場合
+        # パスワードの検証
+        if users[username] != password:
+            self.login_attempts += 1
+            remaining = self.max_attempts - self.login_attempts
+            QMessageBox.warning(
+                self,
+                "エラー",
+                "パスワードが正しくありません。\n"
+                f"残り試行回数: {remaining}"
+            )
+            return
         
         # ログイン成功
         self.main_window = MainWindow(username)
@@ -334,39 +507,61 @@ class LoginWindow(QMainWindow):
                 return False
         return False
 
-    def register(self):
+    def show_register_dialog(self):
         """
-        新規ユーザー登録
+        新規ユーザー登録ダイアログを表示
 
-        入力されたユーザー名とパスワードで新規アカウントを作成します。
-
-        Note:
-            - ユーザー名とパスワードは必須です
-            - 既存のユーザー名は使用できません
+        新規ユーザーの登録処理を行います。
+        登録が成功した場合、AWS認証情報も同時に保存されます。
         """
-        username = self.username_input.text()
-        password = self.password_input.text()
-        
-        if not username or not password:
-            QMessageBox.warning(self, "エラー", "ユーザー名とパスワードを入力してください。")
-            return
-        
-        users = self.load_users()
-        
-        if username in users:
-            QMessageBox.warning(self, "エラー", "このユーザー名は既に使用されています。")
-            return
-        
-        # AWS認証情報の入力を要求
-        if not self.show_aws_credentials_dialog():
-            return  # AWS認証情報の入力をキャンセルした場合
-        
-        users[username] = password
-        self.save_users(users)
-        
-        QMessageBox.information(self, "成功", "ユーザー登録が完了しました。")
-        self.username_input.clear()
-        self.password_input.clear()
+        dialog = RegisterDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            data = dialog.get_registration_data()
+            
+            try:
+                # ユーザーの存在チェック
+                users = self.load_users()
+                if data['username'] in users:
+                    QMessageBox.warning(self, "エラー", "このユーザー名は既に使用されています。")
+                    return
+                
+                # AWS認証情報の保存
+                credentials_manager = CredentialsManager()
+                credentials = {
+                    'access_key': data['aws_access_key'],
+                    'secret_key': data['aws_secret_key'],
+                    'username': data['username']
+                }
+                try:
+                    credentials_manager.save_credentials(credentials)
+                except Exception as e:
+                    QMessageBox.warning(self, "エラー", "AWS認証情報の保存に失敗しました。")
+                    print(f"AWS認証情報保存エラー: {str(e)}")
+                    return
+                
+                # ユーザー情報の保存
+                users[data['username']] = data['password']
+                self.save_users(users)
+                
+                # 完了通知
+                QMessageBox.information(
+                    self,
+                    "登録完了",
+                    f"ユーザー '{data['username']}' の登録が完了しました。\n"
+                    "このアカウントでログインできます。"
+                )
+                
+                # 入力フィールドをクリア
+                self.username_input.clear()
+                self.password_input.clear()
+                
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "エラー",
+                    f"アカウント作成中にエラーが発生しました。\n"
+                    f"エラー内容: {str(e)}"
+                )
 
     def on_return_pressed(self):
         """
