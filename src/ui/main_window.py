@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                            QMessageBox, QMenu, QDialog, QLabel, QLineEdit,
                            QTextEdit, QHeaderView, QApplication)
 from PyQt6.QtCore import Qt, QTimer, QEvent
+from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtCore import QUrl
 import pyperclip
 from ..utils.aws_manager import AWSManager
 import configparser
@@ -29,6 +31,7 @@ class PasswordDialog(QDialog):
         # アプリ名
         self.app_name_input = QLineEdit()
         self.app_name_input.setPlaceholderText("アプリ名")
+        self.app_name_input.textChanged.connect(self.validate_app_name)
         layout.addWidget(QLabel("アプリ名:"))
         layout.addWidget(self.app_name_input)
         
@@ -93,8 +96,20 @@ class PasswordDialog(QDialog):
         else:
             self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
 
+    def validate_app_name(self):
+        """アプリ名の入力バリデーション"""
+        text = self.app_name_input.text()
+        valid = all(c.isalnum() or c in '_.-' for c in text)
+        if not valid and text:
+            self.app_name_input.setStyleSheet("background-color: #ffebee;")
+        else:
+            self.app_name_input.setStyleSheet("")
+        return valid
+
     def get_password_data(self):
         """入力されたパスワード情報を取得"""
+        if not self.validate_app_name():
+            return None
         return {
             'app_name': self.app_name_input.text(),
             'url': self.url_input.text(),
@@ -122,14 +137,15 @@ class MainWindow(QMainWindow):
         # 設定の読み込み
         self.load_config()
         
-        # AWSマネージャーの初期化
+        # AWSマネージャーの初期化とパスワード一覧の取得
         self.aws_manager = AWSManager()
+        self.passwords = self.aws_manager.get_passwords(self.username)
         
         # UIの初期化
         self.init_ui()
         
-        # パスワード一覧の初期表示
-        self.refresh_table()
+        # パスワード一覧の初期表示（既に取得済みのデータを使用）
+        self.update_table_display()
         
         # アクティビティタイマーの設定
         self.activity_timer = QTimer(self)
@@ -342,25 +358,20 @@ class MainWindow(QMainWindow):
             
             pyperclip.copy(value)
 
-    def refresh_table(self):
-        """パスワード一覧を更新"""
+    def update_table_display(self):
+        """パスワード一覧をテーブルに表示（パスワードの再取得なし）"""
         try:
-            # AWS認証情報の再設定（更新のため）
-            self.aws_manager = AWSManager()
-            
-            passwords = self.aws_manager.get_passwords(self.username)
-            
             # テーブルをクリア
             self.table.setRowCount(0)
             
-            if not passwords:
+            if not self.passwords:
                 if self.aws_manager.ssm is None:
                     # 認証情報が設定されていない場合
                     self.show_credentials_warning()
                     return
             
             # パスワード一覧を表示
-            for i, password in enumerate(passwords):
+            for i, password in enumerate(self.passwords):
                 self.table.insertRow(i)
                 
                 # チェックボックス
@@ -369,9 +380,27 @@ class MainWindow(QMainWindow):
                 checkbox_item.setCheckState(Qt.CheckState.Unchecked)
                 self.table.setItem(i, 0, checkbox_item)
                 
-                # その他の情報
+                # アプリ名
                 self.table.setItem(i, 1, QTableWidgetItem(password.get('app_name', '')))
-                self.table.setItem(i, 2, QTableWidgetItem(password.get('url', '')))
+                
+                # URL（クリック可能なリンク）
+                url = password.get('url', '')
+                url_cell = QWidget()
+                url_layout = QHBoxLayout(url_cell)
+                url_layout.setContentsMargins(5, 0, 5, 0)
+                
+                if url and (url.startswith('http://') or url.startswith('https://')):
+                    url_label = QLabel(f'<a href="{url}">{url}</a>')
+                    url_label.setOpenExternalLinks(True)
+                    url_label.setTextFormat(Qt.TextFormat.RichText)
+                else:
+                    url_label = QLabel(url)
+                
+                url_layout.addWidget(url_label)
+                url_cell.setLayout(url_layout)
+                self.table.setCellWidget(i, 2, url_cell)
+                
+                # その他の情報
                 self.table.setItem(i, 3, QTableWidgetItem(password.get('username', '')))
                 self.table.setItem(i, 4, QTableWidgetItem('*' * 8))  # パスワードはマスク表示
                 self.table.setItem(i, 5, QTableWidgetItem(password.get('memo', '')))
@@ -383,7 +412,23 @@ class MainWindow(QMainWindow):
             
             # ボタンの状態を更新
             self.update_button_states()
-                
+            
+        except Exception as e:
+            print(f"テーブル更新エラー: {e}")
+            QMessageBox.warning(self, "エラー", "パスワード一覧の更新に失敗しました。")
+
+    def refresh_table(self):
+        """パスワード一覧を更新（パスワードを再取得）"""
+        try:
+            # AWS認証情報の再設定（更新のため）
+            self.aws_manager = AWSManager()
+            
+            # パスワード一覧を取得
+            self.passwords = self.aws_manager.get_passwords(self.username)
+            
+            # テーブル表示を更新
+            self.update_table_display()
+            
         except Exception as e:
             print(f"テーブル更新エラー: {e}")
             QMessageBox.warning(self, "エラー", "パスワード一覧の更新に失敗しました。")
@@ -519,6 +564,9 @@ class MainWindow(QMainWindow):
         dialog = PasswordDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             data = dialog.get_password_data()
+            if data is None:
+                QMessageBox.warning(self, "エラー", "アプリ名には英数字、アンダースコア、ドット、ハイフンのみ使用できます。")
+                return
             if not data['app_name'] or not data['username'] or not data['password']:
                 QMessageBox.warning(self, "エラー", "アプリ名、ユーザー名、パスワードは必須です。")
                 return

@@ -132,7 +132,7 @@ class AWSManager:
                 
                 print(f"処理完了したパスワード数: {len(passwords)}")  # デバッグ情報
                 
-                # データ形式の移���
+                # データ形式の移行
                 passwords = self._migrate_password_data(passwords)
                 
                 # キャッシュ更新
@@ -167,7 +167,7 @@ class AWSManager:
         for password in passwords:
             migrated_password = password.copy()
             
-            # 古い形式から新しい形���への変換
+            # 古い形式から新しい形式への変換
             if 'website' in password and 'app_name' not in password:
                 migrated_password['app_name'] = password['website']
                 migrated_password['url'] = password.get('url', '')

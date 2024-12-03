@@ -89,7 +89,18 @@ class LoginWindow(QMainWindow):
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.returnPressed.connect(self.on_return_pressed)
         layout.addWidget(password_label)
-        layout.addWidget(self.password_input)
+        
+        # パスワード入力欄とトグルボタンを水平に配置
+        password_layout = QHBoxLayout()
+        password_layout.addWidget(self.password_input)
+        
+        # パスワード表示/非表示切り替えボタン
+        show_password_button = QPushButton('表示')
+        show_password_button.setFixedWidth(60)
+        show_password_button.clicked.connect(self.toggle_password_visibility)
+        password_layout.addWidget(show_password_button)
+        
+        layout.addLayout(password_layout)
         
         # スペースを追加
         layout.addSpacing(10)
@@ -262,3 +273,10 @@ class LoginWindow(QMainWindow):
         # ユーザー名とパスワードが両方入力されている場合のみログイン実行
         if self.username_input.text() and self.password_input.text():
             self.login()
+
+    def toggle_password_visibility(self):
+        """パスワードの表示/非表示を切り替え"""
+        if self.password_input.echoMode() == QLineEdit.EchoMode.Password:
+            self.password_input.setEchoMode(QLineEdit.EchoMode.Normal)
+        else:
+            self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
