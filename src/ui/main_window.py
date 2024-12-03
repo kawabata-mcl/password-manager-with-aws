@@ -10,7 +10,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                            QPushButton, QTableWidget, QTableWidgetItem,
                            QMessageBox, QMenu, QDialog, QLabel, QLineEdit,
-                           QTextEdit, QHeaderView)
+                           QTextEdit, QHeaderView, QApplication)
 from PyQt6.QtCore import Qt, QTimer, QEvent
 import pyperclip
 from ..utils.aws_manager import AWSManager
@@ -116,7 +116,8 @@ class MainWindow(QMainWindow):
         
         # ウィンドウの設定
         self.setWindowTitle(f"パスワードマネージャー - {username}")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 900, 600)  # ウィンドウサイズを少し大きく
+        self.setMinimumSize(800, 500)  # 最小サイズを設定
         
         # 設定の読み込み
         self.load_config()
@@ -135,6 +136,9 @@ class MainWindow(QMainWindow):
         self.activity_timer.timeout.connect(self.check_activity)
         self.activity_timer.start(60000)  # 1分ごとにチェック
         self.last_activity = datetime.now()
+        
+        # ウィンドウを中央に配置
+        self.center_window()
 
     def check_activity(self):
         """ユーザーのアクティビティをチェックし、必要に応じて自動ログアウト"""
@@ -154,7 +158,7 @@ class MainWindow(QMainWindow):
         config = configparser.ConfigParser()
         config.read(Path.home() / '.password_manager' / 'config.ini')
         
-        # セッションタイムアウトの設定
+        # セッションタイムアウトの設定（デフォルト: 30分）
         self.session_timeout = config.getint('App', 'session_timeout', fallback=30)
 
     def init_ui(self):
@@ -172,24 +176,7 @@ class MainWindow(QMainWindow):
         # ツールバーの設定
         toolbar_layout = QHBoxLayout()
         
-        # 追加ボタン
-        add_button = QPushButton("追加")
-        add_button.clicked.connect(self.add_password)
-        toolbar_layout.addWidget(add_button)
-        
-        # 編集ボタン
-        self.edit_button = QPushButton("編集")
-        self.edit_button.clicked.connect(self.edit_selected_passwords)
-        self.edit_button.setEnabled(False)  # 初期状態は無効
-        toolbar_layout.addWidget(self.edit_button)
-        
-        # 削除ボタン
-        self.delete_button = QPushButton("削除")
-        self.delete_button.clicked.connect(self.delete_selected_passwords)
-        self.delete_button.setEnabled(False)  # 初期状態は無効
-        toolbar_layout.addWidget(self.delete_button)
-
-        # コピーボタン
+        # 左側のコピーボタン
         self.copy_url_button = QPushButton("URLをコピー")
         self.copy_url_button.clicked.connect(lambda: self.copy_selected_field('url'))
         self.copy_url_button.setEnabled(False)  # 初期状態は無効
@@ -208,9 +195,40 @@ class MainWindow(QMainWindow):
         # スペーサーを追加（右寄せ用）
         toolbar_layout.addStretch()
         
-        # 更新ボタン
+        # 右側の操作ボタン
+        add_button = QPushButton("追加")
+        add_button.clicked.connect(self.add_password)
+        toolbar_layout.addWidget(add_button)
+        
+        self.edit_button = QPushButton("編集")
+        self.edit_button.clicked.connect(self.edit_selected_passwords)
+        self.edit_button.setEnabled(False)  # 初期状態は無効
+        toolbar_layout.addWidget(self.edit_button)
+        
+        self.delete_button = QPushButton("削除")
+        self.delete_button.clicked.connect(self.delete_selected_passwords)
+        self.delete_button.setEnabled(False)  # 初期状態は無効
+        toolbar_layout.addWidget(self.delete_button)
+        
+        # 更新ボタン（緑色）
         refresh_button = QPushButton("更新")
         refresh_button.clicked.connect(self.refresh_table)
+        refresh_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 8px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+        """)
         toolbar_layout.addWidget(refresh_button)
         
         layout.addLayout(toolbar_layout)
@@ -323,16 +341,13 @@ class MainWindow(QMainWindow):
                         break
             
             pyperclip.copy(value)
-            field_names = {
-                'url': 'URL',
-                'username': 'ユーザー名',
-                'password': 'パスワード'
-            }
-            QMessageBox.information(self, "コピー完了", f"{field_names[field]}をクリップボードにコピーしました。")
 
     def refresh_table(self):
         """パスワード一覧を更新"""
         try:
+            # AWS認証情報の再設定（更新のため）
+            self.aws_manager = AWSManager()
+            
             passwords = self.aws_manager.get_passwords(self.username)
             
             # テーブルをクリア
@@ -343,7 +358,7 @@ class MainWindow(QMainWindow):
                     # 認証情報が設定されていない場合
                     self.show_credentials_warning()
                     return
-                    
+            
             # パスワード一覧を表示
             for i, password in enumerate(passwords):
                 self.table.insertRow(i)
@@ -360,6 +375,11 @@ class MainWindow(QMainWindow):
                 self.table.setItem(i, 3, QTableWidgetItem(password.get('username', '')))
                 self.table.setItem(i, 4, QTableWidgetItem('*' * 8))  # パスワードはマスク表示
                 self.table.setItem(i, 5, QTableWidgetItem(password.get('memo', '')))
+            
+            # 列幅の調整
+            self.table.setColumnWidth(0, 30)   # チェックボックス
+            self.table.setColumnWidth(3, 150)  # ユーザー名
+            self.table.setColumnWidth(4, 100)  # パスワード
             
             # ボタンの状態を更新
             self.update_button_states()
@@ -421,8 +441,20 @@ class MainWindow(QMainWindow):
                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
                                    
         if reply == QMessageBox.StandardButton.Yes:
+            success = True
             for password in selected:
-                self.delete_password(password['app_name'])
+                if not self.aws_manager.delete_password(self.username, password['app_name']):
+                    success = False
+                    break
+            
+            if success:
+                if len(selected) == 1:
+                    QMessageBox.information(self, "成功", f"パスワード '{selected[0]['app_name']}' を削除しました。")
+                else:
+                    QMessageBox.information(self, "成功", f"{len(selected)}件のパスワードを削除しました。")
+                self.refresh_table()  # 削除後に更新
+            else:
+                QMessageBox.warning(self, "エラー", "パスワードの削除に失敗しました。")
 
     def show_credentials_warning(self):
         """認証情報が設定されていない場合の警告を表示"""
@@ -499,7 +531,8 @@ class MainWindow(QMainWindow):
                     return
             
             if self.aws_manager.save_password(self.username, data):
-                self.refresh_table()
+                QMessageBox.information(self, "成功", f"パスワード '{data['app_name']}' を追加しました。")
+                self.refresh_table()  # 追加後に更新
             else:
                 QMessageBox.warning(self, "エラー", "パスワードの保存に失敗しました。")
 
@@ -513,7 +546,8 @@ class MainWindow(QMainWindow):
                 return
             
             if self.aws_manager.save_password(self.username, data):
-                self.refresh_table()
+                QMessageBox.information(self, "成功", f"パスワード '{data['app_name']}' を更新しました。")
+                self.refresh_table()  # 編集後に更新
             else:
                 QMessageBox.warning(self, "エラー", "パスワードの更新に失敗しました。")
 
@@ -523,3 +557,11 @@ class MainWindow(QMainWindow):
             self.refresh_table()
         else:
             QMessageBox.warning(self, "エラー", "パスワードの削除に失敗しました。") 
+
+    def center_window(self):
+        """ウィンドウを画面中央に配置"""
+        screen = QApplication.primaryScreen().geometry()
+        size = self.geometry()
+        x = (screen.width() - size.width()) // 2
+        y = (screen.height() - size.height()) // 2
+        self.move(x, y) 
