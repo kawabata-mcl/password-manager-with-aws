@@ -64,6 +64,8 @@ cd password-manager-with-aws
 
 ### 3. パスワードマネージャー用IAMユーザーの作成
 
+> **Note**: 以下のコマンドはPowerShellで実行してください。コマンドプロンプト(CMD)では動作しません。
+
 1. CloudFormationテンプレートのデプロイ
    ```powershell
    aws cloudformation create-stack `
@@ -83,11 +85,11 @@ cd password-manager-with-aws
 3. アプリケーション用の認証情報の取得
    ```powershell
    # シークレットのARNを取得
-   $SECRET_ARN = aws cloudformation describe-stacks `
+   $SECRET_ARN = $(aws cloudformation describe-stacks `
      --stack-name password-manager-iam `
      --query 'Stacks[0].Outputs[?OutputKey==`SecretArn`].OutputValue' `
      --output text `
-     --profile password-manager-admin
+     --profile password-manager-admin)
 
    # 認証情報の取得
    aws secretsmanager get-secret-value `
@@ -98,27 +100,48 @@ cd password-manager-with-aws
    ```
 
 4. 取得した認証情報を安全に保管
-   - 表示された認証情報（JSON形式）をコピー
+   - 表示された認証情報（JSON形式）をコピーしてメモ帳などに一時的に保存
    - 次のステップのアプリケーション初回起動時に使用
-   - 認証情報を取得したら、ターミナルの履歴をクリア
-     ```cmd
-     cls         # Windows
+   - **重要**: セキュリティのため、認証情報をコピーしたら必ずPowerShellウィンドウを閉じてください
+     ```powershell
+     # 認証情報が表示されたら、PowerShellウィンドウを閉じて
+     # 新しいセッションで作業を続けてください
      ```
 
 ### 4. アプリケーションの初回起動
 
 1. `start_password_manager.bat`をダブルクリック
-2. 必要なパッケージが自動的にインストールされます
+2. コマンドプロンプトが開き、必要なパッケージが自動的にインストールされます
+3. インストールが終わると、アプリケーションの画面が表示されます
 
-### 5. アカウント作成とログイン
+### 5. 2回目以降の起動方法
+
+#### 方法1: バッチファイルから起動
+- `start_password_manager.bat`をダブルクリックで起動
+
+#### 方法2: デスクトップショートカットから起動
+1. ショートカットの作成：
+   - `start_password_manager.bat`を右クリック
+   - 「ショートカットの作成」を選択
+   - 作成されたショートカットをデスクトップに移動
+2. ショートカットのカスタマイズ（任意）：
+   - ショートカットを右クリック→「プロパティ」
+   - アイコンの変更：「アイコンの変更」→好みのアイコンを選択
+   - 名前の変更：「Password Manager」など分かりやすい名前に変更
+   - 「適用」→「OK」をクリック
+3. 次回からはデスクトップのショートカットをダブルクリックで起動
+
+> **Note**: アプリケーションを別の場所に移動した場合は、ショートカットのリンク先を更新する必要があります。
+
+### 6. アカウント作成とログイン
 
 #### 新規アカウント作成
 1. アプリケーションを起動し、「新規登録」ボタンをクリック
 2. 以下の情報を入力：
    - ユーザー名（英数字、アンダースコア、ハイフンのみ使用可）
    - パスワード（確認用に2回入力）
-   - AWSアクセスキー（手順3で取得したJSONの`accessKeyId`の値）
-   - AWSシークレットキー（手順3で取得したJSONの`secretAccessKey`の値）
+   - AWSアクセスキー（手順3-4で保存したJSONの`accessKeyId`の値）
+   - AWSシークレットキー（手順3-4で保存したJSONの`secretAccessKey`の値）
 3. 「登録」ボタンをクリックして完了
 4. 登録完了のメッセージが表示されます
 
@@ -130,7 +153,7 @@ cd password-manager-with-aws
    - パスワードが間違っている：正しいパスワードを入力してください
    - 3回連続で失敗するとアプリケーションが終了します
 
-### 6. パスワード情報の管理
+### 7. パスワード情報の管理
 
 #### パスワード情報の追加
 1. メイン画面の「追加」ボタンをクリック
@@ -166,7 +189,7 @@ cd password-manager-with-aws
 #### 一覧の更新
 - 「更新」ボタンをクリックすると、最新のパスワード情報を取得します
 
-### 7. セキュリティ機能
+### 8. セキュリティ機能
 
 - パスワード情報はAWS Parameter Storeで暗号化して保存
 - AWS認証情報は暗号化して保存
@@ -174,7 +197,7 @@ cd password-manager-with-aws
 - 自動ログアウト機能（30分間操作がない場合）
 - ログイン試行回数の制限（3回まで）
 
-### 8. トラブルシューティング
+### 9. トラブルシューティング
 
 #### ログインできない場合
 - ユーザー名とパスワードが正しいか確認
@@ -237,12 +260,10 @@ password_cache_duration = 300
 
 ### 1. AWSリソースの削除
 
-> **Note**: コマンド例では `password-manager-admin` というプロファイル名を使用しています。
-> 異なるプロファイル名を使用している場合は、`--profile password-manager-admin` の部分を
-> 実際に使用しているプロファイル名に置き換えてください。
+> **Note**: 以下のコマンドはPowerShellで実行してください。コマンドプロンプト(CMD)では動作しません。
 
 1. AWS CLIで認証情報を設定していない場合：
-   ```bash
+   ```powershell
    aws configure --profile password-manager-admin
    ```
 
@@ -258,6 +279,29 @@ password_cache_duration = 300
    aws cloudformation wait stack-delete-complete `
      --stack-name password-manager-iam `
      --profile password-manager-admin  # プロファイル名は適宜変更
+   ```
+
+### 2. AWS認証情報の削除
+
+```powershell
+Remove-Item "$env:USERPROFILE\.aws\credentials.password-manager-admin"  # プロファイル名は適宜変更
+```
+
+### 3. ローカルファイルの削除
+
+1. アプリケーション設定の削除：
+   ```powershell
+   Remove-Item -Recurse -Force "$env:USERPROFILE\.password_manager"
+   ```
+
+2. アプリケーションフォルダの削除：
+   ```powershell
+   # クローンしたリポジトリのディレクトリに移動して
+   Set-Location password-manager-with-aws
+   # 一つ上の階層に移動
+   Set-Location ..
+   # フォルダごと削除
+   Remove-Item -Recurse -Force password-manager-with-aws
    ```
 
 ## 注意事項
