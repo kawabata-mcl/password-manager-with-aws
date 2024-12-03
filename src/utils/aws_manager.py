@@ -6,6 +6,18 @@ AWSパラメータストア操作用マネージャー
 
 このモジュールは、AWSパラメータストアとの通信を管理し、
 パスワード情報のCRUD操作を提供します。
+
+主な機能:
+- パスワード情報の暗号化保存
+- パスワード情報の取得と復号
+- キャッシュを使用したパフォーマンス最適化
+- エラーハンドリングとリトライ処理
+
+依存関係:
+- boto3: AWS SDK for Python
+- json: JSONデータの処理
+- typing: 型ヒント
+- datetime: 日時処理
 """
 
 import boto3
@@ -25,6 +37,15 @@ class AWSManager:
 
         Args:
             region (str): AWS リージョン名。デフォルトは 'ap-northeast-1'
+
+        Attributes:
+            region (str): 使用するAWSリージョン
+            credentials_manager (CredentialsManager): 認証情報管理オブジェクト
+            session (boto3.Session): AWSセッション
+            ssm (boto3.client): Systems Manager クライアント
+            cache (dict): パスワード情報のキャッシュ
+            cache_timestamp (datetime): キャッシュの最終更新時刻
+            cache_duration (int): キャッシュの有効期間（秒）
         """
         self.region = region
         self.credentials_manager = CredentialsManager()
@@ -34,7 +55,12 @@ class AWSManager:
         self.cache_duration = 300  # 5分
 
     def _setup_session(self):
-        """AWSセッションのセットアップ"""
+        """
+        AWSセッションのセットアップ
+
+        認証情報を使用してAWSセッションとSystems Managerクライアントを初期化します。
+        認証情報が存在しない場合、セッションとクライアントはNoneに設定されます。
+        """
         access_key = self.credentials_manager.get_access_key()
         secret_key = self.credentials_manager.get_secret_key()
         
@@ -55,7 +81,10 @@ class AWSManager:
         認証情報が設定されているか確認
 
         Raises:
-            NoCredentialsError: 認証情報が設定されていない場合
+            NoCredentialsError: 認証情報が設定されていない場合に発生
+
+        Note:
+            このメソッドは他のメソッドから認証情報の存在を確認するために使用されます。
         """
         if self.ssm is None:
             raise self.NoCredentialsError("AWS認証情報が設定されていません。設定画面から認証情報を設定してください。")
@@ -69,7 +98,11 @@ class AWSManager:
             app_name (str, optional): アプリ名。指定がない場合はユーザーのルートパスを返す。
 
         Returns:
-            str: パラメータパス
+            str: パラメータパス（例: /password-manager/username/app_name）
+
+        Note:
+            パスの形式は /password-manager/{username}/{app_name} です。
+            app_nameが指定されていない場合は /password-manager/{username} を返します。
         """
         base_path = f"/password-manager/{username}"
         if app_name:
@@ -77,7 +110,15 @@ class AWSManager:
         return base_path
 
     def _is_cache_valid(self) -> bool:
-        """キャッシュが有効かどうかを確認"""
+        """
+        キャッシュが有効かどうかを確認
+
+        Returns:
+            bool: キャッシュが有効な場合はTrue、それ以外はFalse
+
+        Note:
+            キャッシュの有効期間は self.cache_duration で指定された秒数です。
+        """
         if not self.cache_timestamp:
             return False
         return datetime.now() - self.cache_timestamp < timedelta(seconds=self.cache_duration)
@@ -90,7 +131,19 @@ class AWSManager:
             username (str): ユーザー名
 
         Returns:
-            list: パスワード情報のリスト
+            list: パスワード情報のリスト。各要素は以下の形式の辞書:
+                {
+                    'app_name': str,
+                    'url': str,
+                    'username': str,
+                    'password': str,
+                    'memo': str
+                }
+
+        Note:
+            - キャッシュが有効な場合はキャッシュから情報を返します
+            - エラーが発生した場合は空のリストを返します
+            - 取得したデータは自動的にキャッシュされます
         """
         try:
             self._check_credentials()
@@ -162,6 +215,10 @@ class AWSManager:
 
         Returns:
             list: 移行後のパスワード情報のリスト
+
+        Note:
+            - 古い形式（'website'キー）から新しい形式（'app_name'キー）への変換を行います
+            - 必須フィールドが存在しない場合は空文字列を設定します
         """
         migrated_passwords = []
         for password in passwords:
@@ -205,7 +262,12 @@ class AWSManager:
                 }
 
         Returns:
-            bool: 保存に成功した場合はTrue
+            bool: 保存に成功した場合はTrue、失敗した場合はFalse
+
+        Note:
+            - パスワード情報はAWSパラメータストアに暗号化して保存されます
+            - 保存後、キャッシュは自動的に更新されます
+            - app_nameは必須フィールドです
         """
         try:
             self._check_credentials()
@@ -251,10 +313,14 @@ class AWSManager:
 
         Args:
             username (str): ユーザー名
-            app_name (str): アプリ名
+            app_name (str): 削除するアプリ名
 
         Returns:
-            bool: 削除に成功した場合はTrue
+            bool: 削除に成功した場合はTrue、失敗した場合はFalse
+
+        Note:
+            - 削除後、キャッシュは自動的に更新されます
+            - 指定されたapp_nameが存在しない場合もTrueを返します
         """
         try:
             self._check_credentials()

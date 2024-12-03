@@ -6,6 +6,16 @@ AWS認証情報マネージャー
 
 AWSの認証情報を安全に管理するためのユーティリティクラス。
 認証情報は暗号化されて保存されます。
+
+主な機能:
+- AWS認証情報の暗号化保存
+- 認証情報の安全な読み込み
+- 設定ファイルの管理
+
+依存関係:
+- cryptography: 暗号化処理
+- configparser: 設定ファイル処理
+- base64: エンコーディング
 """
 
 import os
@@ -19,7 +29,15 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 class CredentialsManager:
     def __init__(self):
-        """認証情報マネージャーの初期化"""
+        """
+        認証情報マネージャーの初期化
+
+        Attributes:
+            config_dir (Path): 設定ファイルディレクトリ
+            config_path (Path): 設定ファイルのパス
+            credentials_path (Path): 認証情報ファイルのパス
+            cipher_suite (Fernet): 暗号化/復号化オブジェクト
+        """
         self.config_dir = Path.home() / '.password_manager'
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.config_path = self.config_dir / 'config.ini'
@@ -27,7 +45,17 @@ class CredentialsManager:
         self._setup_encryption()
 
     def _setup_encryption(self):
-        """暗号化キーのセットアップ"""
+        """
+        暗号化キーのセットアップ
+
+        暗号化に使用するマスターキーの生成または読み込みを行います。
+        キーはPBKDF2を使用して生成され、ファイルに保存されます。
+
+        Note:
+            - キーファイルが存在しない場合は新規に生成されます
+            - 既存のキーファイルが存在する場合はそれを読み込みます
+            - キーはソルトとともに保存されます
+        """
         key_file = self.config_dir / 'master.key'
         if not key_file.exists():
             # マスターキーの生成
@@ -55,7 +83,16 @@ class CredentialsManager:
 
         Args:
             credentials (dict): AWS認証情報を含む辞書
-                              {'access_key': str, 'secret_key': str}
+                {
+                    'access_key': str,
+                    'secret_key': str,
+                    'region': str (optional)
+                }
+
+        Note:
+            - 認証情報は暗号化されてファイルに保存されます
+            - リージョン情報は設定ファイルに平文で保存されます
+            - 既存の認証情報は上書きされます
         """
         # 認証情報の暗号化
         encrypted_data = self.cipher_suite.encrypt(json.dumps(credentials).encode())
@@ -70,6 +107,16 @@ class CredentialsManager:
 
         Returns:
             dict: 認証情報を含む辞書
+                {
+                    'access_key': str,
+                    'secret_key': str,
+                    'region': str
+                }
+
+        Note:
+            - 認証情報が存在しない場合は空の辞書を返します
+            - 復号化に失敗した場合は空の辞書を返します
+            - リージョン情報は設定ファイルから読み込まれます
         """
         if not self.credentials_path.exists():
             return {'access_key': '', 'secret_key': ''}
@@ -88,7 +135,10 @@ class CredentialsManager:
         AWSアクセスキーを取得
 
         Returns:
-            str: AWSアクセスキー
+            str: AWSアクセスキー。認証情報が存在しない場合は空文字列
+
+        Note:
+            このメソッドは内部でload_credentials()を呼び出します。
         """
         return self.load_credentials().get('access_key', '')
 
@@ -97,7 +147,10 @@ class CredentialsManager:
         AWSシークレットキーを取得
 
         Returns:
-            str: AWSシークレットキー
+            str: AWSシークレットキー。認証情報が存在しない場合は空文字列
+
+        Note:
+            このメソッドは内部でload_credentials()を呼び出します。
         """
         return self.load_credentials().get('secret_key', '')
 
