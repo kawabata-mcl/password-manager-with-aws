@@ -65,35 +65,35 @@ cd password-manager-with-aws
 ### 3. パスワードマネージャー用IAMユーザーの作成
 
 1. CloudFormationテンプレートのデプロイ
-   ```bash
-   aws cloudformation create-stack \
-     --stack-name password-manager-iam \
-     --template-body file://infrastructure/password-manager-iam.yaml \
-     --capabilities CAPABILITY_NAMED_IAM \
+   ```powershell
+   aws cloudformation create-stack `
+     --stack-name password-manager-iam `
+     --template-body file://infrastructure/password-manager-iam.yaml `
+     --capabilities CAPABILITY_NAMED_IAM `
      --profile password-manager-admin
    ```
 
 2. スタックの作成完了を待機
-   ```bash
-   aws cloudformation wait stack-create-complete \
-     --stack-name password-manager-iam \
+   ```powershell
+   aws cloudformation wait stack-create-complete `
+     --stack-name password-manager-iam `
      --profile password-manager-admin
    ```
 
 3. アプリケーション用の認証情報の取得
-   ```bash
+   ```powershell
    # シークレットのARNを取得
-   SECRET_ARN=$(aws cloudformation describe-stacks \
-     --stack-name password-manager-iam \
-     --query 'Stacks[0].Outputs[?OutputKey==`SecretArn`].OutputValue' \
-     --output text \
-     --profile password-manager-admin)
+   $SECRET_ARN = aws cloudformation describe-stacks `
+     --stack-name password-manager-iam `
+     --query 'Stacks[0].Outputs[?OutputKey==`SecretArn`].OutputValue' `
+     --output text `
+     --profile password-manager-admin
 
    # 認証情報の取得
-   aws secretsmanager get-secret-value \
-     --secret-id $SECRET_ARN \
-     --query 'SecretString' \
-     --output text \
+   aws secretsmanager get-secret-value `
+     --secret-id $SECRET_ARN `
+     --query 'SecretString' `
+     --output text `
      --profile password-manager-admin
    ```
 
@@ -247,24 +247,18 @@ password_cache_duration = 300
    ```
 
 2. CloudFormationスタックの削除：
-   ```bash
-   aws cloudformation delete-stack \
-     --stack-name password-manager-iam \
+   ```powershell
+   aws cloudformation delete-stack `
+     --stack-name password-manager-iam `
      --profile password-manager-admin  # プロファイル名は適宜変更
    ```
 
 3. 削除完了の確認：
-   ```bash
-   aws cloudformation wait stack-delete-complete \
-     --stack-name password-manager-iam \
+   ```powershell
+   aws cloudformation wait stack-delete-complete `
+     --stack-name password-manager-iam `
      --profile password-manager-admin  # プロファイル名は適宜変更
    ```
-
-### 2. AWS認証情報の削除
-
-```cmd
-del "%USERPROFILE%\.aws\credentials.password-manager-admin"  # プロファイル名は適宜変更
-```
 
 ## 注意事項
 
