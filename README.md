@@ -48,7 +48,7 @@ cd password-manager-with-aws
 
 > **Note**: すでにAWS CLIがインストールされており、管理者権限を持つプロファイルが設定済みの場合は、このステップをスキップできます。
 
-1. [AWS CLIのインストール](https://aws.amazon.com/cli/)
+1. [AWS CLIのインストール](https://docs.aws.amazon.com/ja_jp/cli/latest/userguide/getting-started-install.html)
 
 2. 管理者権限を持つIAMユーザーの認証情報でプロファイルを設定
    ```bash
